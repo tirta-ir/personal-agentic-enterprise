@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "reply": { "type": "string" },
+    "delegations": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "properties": {
+          "agent_id": { "type": "string" },
+          "task": { "type": "string" }
+        },
+        "required": ["agent_id", "task"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["reply", "delegations"],
+  "additionalProperties": false
+}

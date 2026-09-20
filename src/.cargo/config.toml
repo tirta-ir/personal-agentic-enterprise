@@ -1,0 +1,7 @@
+[env]
+PROTOC = { value = "tools/protoc/bin/protoc.exe", relative = true }
+RUST_MIN_STACK = "67108864"
+TS_RS_EXPORT_DIR = { value = "frontend/src/bindings", relative = true }
+
+[build]
+jobs = 4

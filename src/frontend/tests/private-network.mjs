@@ -1,0 +1,77 @@
+import assert from "node:assert/strict";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { expect } from "@playwright/test";
+
+export async function verifyPrivateNetwork({ page, request, call, state, until, org, base, directory }) {
+  assert(process.env.AE_TEST_ORG && path.resolve(org) !== path.resolve("../../org"), "Use a disposable organization");
+  assert(!["localhost", "127.0.0.1"].includes(new URL(base).hostname));
+  const runScript = (name, ...args) => execFileSync("pwsh", ["-NoProfile", "-File", path.resolve(`../scripts/${name}.ps1`), "-Org", org, ...args], { stdio: "ignore", timeout: 25000 });
+  const json = async (name) => JSON.parse(await readFile(path.join(org, ".state", name), "utf8"));
+  const saved = await json("deployment.json");
+  const service = await json("service.json");
+  assert.equal(service.url, base);
+  runScript("Start");
+  assert.equal((await json("service.json")).pid, service.pid);
+  assert.throws(() => runScript("Start", "-InterfaceAlias", "missing-agentic-interface"));
+  assert.deepEqual(await json("deployment.json"), saved);
+  assert.equal((await json("service.json")).pid, service.pid);
+  assert.throws(() => execFileSync(service.executable, ["--bind", "0.0.0.0", "--org", org], { stdio: "pipe" }), /specific local IPv4/);
+  assert.equal((await request.get("/api/health", { headers: { Host: "untrusted.invalid" } })).status(), 403);
+  assert.equal((await request.get("/api/health", { headers: { Origin: base } })).status(), 200);
+  assert.equal((await request.get("/api/health", { headers: { Origin: "http://127.0.0.1:8765" } })).status(), 403);
+
+  await page.context().clearCookies();
+  await page.goto("/");
+  await expect(page.getByLabel("Owner key", { exact: true })).toBeVisible();
+  await page.getByLabel("Owner key", { exact: true }).fill("incorrect-key");
+  await page.getByRole("button", { name: "Open workspace" }).click();
+  await expect(page.getByRole("alert")).toContainText("Invalid owner key");
+  await page.getByLabel("Owner key", { exact: true }).fill((await readFile(path.join(org, ".state/owner.key"), "utf8")).trim());
+  await page.getByRole("button", { name: "Open workspace" }).click();
+  await expect(page.getByRole("heading", { name: "General", exact: true })).toBeVisible();
+  assert.equal(await page.evaluate(() => isSecureContext), false);
+  assert.equal(await page.evaluate(() => typeof crypto.randomUUID), "undefined");
+  const cookie = (await page.context().cookies()).find((entry) => entry.name === "ae_session");
+  assert(cookie.httpOnly && cookie.sameSite === "Strict");
+  const input = page.getByRole("textbox", { name: "Message", exact: true });
+  await input.fill("/reset");
+  await input.press("Enter");
+  await expect(input).toHaveValue("");
+  await expect(page.locator(".message-content .markdown").last()).toContainText("Fresh conversation started for every agent");
+  const messages = await call("/groups/general/messages", undefined, "GET");
+  const reset = messages.findLast((message) => message.command === "reset" && message.sender === "owner");
+  assert.match(reset.id, /^[a-f0-9]{32}$/);
+
+  const workspace = path.join(org, "network probe workdir");
+  await mkdir(workspace, { recursive: true });
+  const probe = await call("/workspaces/probe", { path: workspace });
+  const agent = (await state()).agents.find((entry) => entry.id === "ceo");
+  await call("/agents/ceo", { ...agent, workdir: probe.workspace }, "PUT");
+  await page.goto("/organization/agents/ceo/terminal");
+  const command = `Write-Output 'WT0_TERMINAL_OK ${crypto.randomUUID()}'; (Get-Location).Path`;
+  await page.getByRole("textbox", { name: "PowerShell command" }).fill(command);
+  await page.getByRole("button", { name: "Run command", exact: true }).click();
+  const completed = await until(async () => {
+    const runs = await call("/agents/ceo/terminal", undefined, "GET");
+    return runs.find((entry) => entry.command === command && entry.status === "completed");
+  }, 30000);
+  const terminal = await call(`/agents/ceo/terminal/${completed.id}`, undefined, "GET");
+  assert.match(terminal.id, /^[a-f0-9]{32}$/);
+  assert.equal(terminal.exit_code, 0);
+  assert(terminal.output.includes("WT0_TERMINAL_OK") && terminal.output.includes(workspace));
+  await expect(page.getByLabel("Command output")).toContainText("WT0_TERMINAL_OK");
+  await page.screenshot({ path: path.join(directory, "private-network-terminal.png") });
+  runScript("Stop");
+  runScript("Start");
+  assert.equal((await json("service.json")).url, base);
+  assert.deepEqual(await json("deployment.json"), saved);
+  assert((await call("/groups/general/messages", undefined, "GET")).some((message) => message.id === reset.id));
+  assert.equal((await call(`/agents/ceo/terminal/${terminal.id}`, undefined, "GET")).exit_code, 0);
+  await page.reload();
+  await expect(page.getByLabel("Command output")).toContainText("WT0_TERMINAL_OK");
+  const proof = { base, interface: saved.interface_alias, httpLogin: true, invalidKeyStatus: 401, invalidHostStatus: 403, crossOriginStatus: 403, secureContext: false, chatMessage: reset.id, terminalRun: terminal.id, terminalExit: terminal.exit_code, restartPersisted: true, mocks: false };
+  await writeFile(path.join(directory, "private-network-proof.json"), JSON.stringify(proof, null, 2));
+  return proof;
+}
