@@ -12,7 +12,7 @@ const commands = [
   },
   {
     name: "/usage",
-    description: "Check live Codex account usage and reset times",
+    description: "Check harness usage and available account limits",
     icon: Gauge,
   },
 ];
@@ -136,9 +136,9 @@ function windowName(window: UsageWindow | null, fallback: string) {
 
 export function UsageCard({ report }: { report: UsageReport }) {
   return (
-    <section className="usage-card" aria-label="Codex account usage">
+    <section className="usage-card" aria-label="Harness usage">
       <p className="usage-caption">
-        Shared across your Codex account · Checked{" "}
+        {report.buckets.length > 0 ? "Codex account limits · " : ""}Checked{" "}
         {new Date(report.checked_at).toLocaleString()}
       </p>
       {report.buckets.map((bucket, index) => (
@@ -186,6 +186,7 @@ export function UsageCard({ report }: { report: UsageReport }) {
           )}
         </div>
       ))}
+      {report.opencode_usage && <p>{report.opencode_usage}</p>}
       <p className="usage-caption">Send /usage again to refresh.</p>
     </section>
   );

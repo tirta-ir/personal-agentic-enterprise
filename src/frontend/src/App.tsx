@@ -102,6 +102,7 @@ const OrganizationChart = lazy(() =>
 );
 
 type Session = {
+  harness: "codex" | "opencode";
   id: string;
   native_id: string | null;
   agent_id: string;
@@ -736,7 +737,7 @@ export default function App() {
                         <ShieldCheck size={13} /> Local & private
                       </span>
                       <span>
-                        <Terminal size={13} /> Real Codex execution
+                        <Terminal size={13} /> Native agent execution
                       </span>
                       <span>
                         <FolderOpen size={13} /> Your existing codebases
@@ -1267,6 +1268,7 @@ export default function App() {
                   position: String(fields.get("position") ?? ""),
                   role: String(fields.get("role")),
                   color: getComputedStyle(document.documentElement).getPropertyValue("--gauss-700").trim(),
+                  harness: String(fields.get("harness") || "codex"),
                   model: "",
                   reasoning: "",
                   reports_to: String(fields.get("reports_to") ?? "") || null,
@@ -1274,7 +1276,7 @@ export default function App() {
                     "Work carefully. Explain your changes and verify the result.",
                   agents_md: "",
                   workdir: null,
-                  permission: "read-only",
+                  permission: fields.get("harness") === "opencode" ? "danger-full-access" : "read-only",
                   timeout_seconds: 1800,
                   enabled: true,
                   deleted_at: null,
@@ -1289,6 +1291,8 @@ export default function App() {
           >
             <Label htmlFor="agent-project">Agent scope</Label>
             <select id="agent-project" name="project_id" defaultValue={newAgentProject}><option value="">Organization agent</option>{data?.groups.filter(g=>g.project&&!g.archived_at).map(g=><option key={g.id} value={g.id}>Project: {g.name}</option>)}</select>
+            <Label htmlFor="agent-harness">Harness</Label>
+            <select id="agent-harness" name="harness" defaultValue="codex"><option value="codex">Codex CLI</option><option value="opencode">OpenCode</option></select>
             <Label htmlFor="agent-name">Name</Label>
             <Input
               id="agent-name"
@@ -1630,21 +1634,23 @@ function AgentInspector({
   );
   const [modelError, setModelError] = useState("");
   const catalogHost = effectiveAgent.workdir?.ssh_host;
-  const loadModels = useCallback(
-    () =>
-      api<CodexSettings>(`/codex/settings${catalogHost ? `?ssh_host=${encodeURIComponent(catalogHost)}` : ""}`).then(
-        (settings) => {
-          setModels(settings);
-          setModelError("");
-        },
-        (error: unknown) =>
-          setModelError(error instanceof Error ? error.message : String(error)),
-      ),
-    [catalogHost],
-  );
+  const modelsRequest = useRef(0);
+  const loadModels = useCallback(() => {
+    const request = ++modelsRequest.current;
+    return api<CodexSettings>(`/harness/settings?harness=${edited.harness}&agent_id=${encodeURIComponent(agent.id)}${catalogHost ? `&ssh_host=${encodeURIComponent(catalogHost)}` : ""}`).then(settings => {
+      if (request === modelsRequest.current) { setModels(settings); setModelError(""); }
+    }, (error: unknown) => {
+      if (request === modelsRequest.current) setModelError(error instanceof Error ? error.message : String(error));
+    });
+  }, [catalogHost, edited.harness, agent.id]);
   useEffect(() => {
-    void loadModels();
-  }, [loadModels]);
+    if (section !== "Profile") return;
+    let request = modelsRequest.current;
+    const refresh = () => { void loadModels(); request = modelsRequest.current; };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => { window.removeEventListener("focus", refresh); if (modelsRequest.current === request) modelsRequest.current = request + 1; };
+  }, [loadModels, section]);
   const selectedModel = models?.models.find(
     (m) => m.slug === (edited.model || models.model),
   );
@@ -1788,6 +1794,15 @@ function AgentInspector({
                 <OrganizationRelationships context={organization} />
               )}
             </details>
+            <Label htmlFor="profile-harness">Harness</Label>
+            <select id="profile-harness" value={edited.harness} onChange={event => {
+              setModels(null); setModelError(""); setProbe("");
+              setEdited({...edited, harness: event.target.value as Agent["harness"], model:"", reasoning:"", permission: event.target.value === "opencode" ? "danger-full-access" : edited.permission});
+            }}>
+              <option value="codex">Codex CLI</option>
+              <option value="opencode">OpenCode</option>
+            </select>
+            <p className="hint">Each harness keeps its own resumable sessions. Switching back resumes that harness’s conversation.</p>
             <Label htmlFor="profile-model">Model</Label>
             <select
               id="profile-model"
@@ -1799,7 +1814,7 @@ function AgentInspector({
             >
               <option value="">
                 {models
-                  ? `Use Codex setting (${models.model})`
+                  ? `Use ${edited.harness === "opencode" ? "OpenCode setting" : "Codex setting"} (${models.model})`
                   : "Loading models…"}
               </option>
               {edited.model &&
@@ -1810,11 +1825,11 @@ function AgentInspector({
                 )}
               {models?.models.map((m) => (
                 <option key={m.slug} value={m.slug}>
-                  {m.display_name}
+                  {m.display_name}{edited.harness === "opencode" ? ` · ${m.slug.split("/")[0]}` : ""}
                 </option>
               ))}
             </select>
-            <Label htmlFor="profile-reasoning">Reasoning effort</Label>
+            {Boolean(selectedModel?.supported_reasoning_levels.length) && <><Label htmlFor="profile-reasoning">{edited.harness === "opencode" ? "Model variant" : "Reasoning effort"}</Label>
             <select
               id="profile-reasoning"
               value={edited.reasoning}
@@ -1826,7 +1841,7 @@ function AgentInspector({
               <option value="">
                 {inheritedReasoning
                   ? `Use default (${inheritedReasoning})`
-                  : "Loading reasoning levels…"}
+                  : "Use model default"}
               </option>
               {edited.reasoning &&
                 !selectedModel?.supported_reasoning_levels.some(
@@ -1842,8 +1857,9 @@ function AgentInspector({
                 </option>
               ))}
             </select>
+            </>}
             <div className="model-source">
-              <span>From your Codex settings</span>
+              <span>{edited.harness === "opencode" ? "From your OpenCode CLI · refresh after adding providers or models" : "From your Codex settings"}</span>
               <button
                 type="button"
                 onClick={() => void loadModels()}
@@ -1899,7 +1915,7 @@ function AgentInspector({
                 })
               }
             >
-              <ShieldCheck size={15} /> Check Codex connection
+              <ShieldCheck size={15} /> Check {agent.harness === "opencode" ? "OpenCode" : "Codex"} connection
             </Button>
             {probe && <p className="probe-result">{probe}</p>}
           </div>
@@ -1962,10 +1978,10 @@ function AgentInspector({
                 YOLO — full access, no approvals
               </option>
             </select>
+            {edited.harness === "opencode" && edited.permission !== "danger-full-access" && <p className="hint">OpenCode tool permissions: shell commands are disabled in restricted modes. Workspace write allows file edits inside the workdir. These controls are not an operating-system sandbox. Some free providers reject restricted runs; the selected permissions stay in effect when a run fails.</p>}
             {edited.permission === "danger-full-access" && (
               <p className="hint">
-                Commands run with your account’s access, without the Codex
-                sandbox or approval prompts.
+                Commands run with your account’s access, without {edited.harness === "codex" ? "the Codex sandbox or " : ""}approval prompts.
               </p>
             )}
             <Button
@@ -2136,14 +2152,14 @@ function AgentInspector({
         )}
         {section === "Sessions" && (
           <div className="session-list">
-            <p className="hint">Each group and side chat has its own session for this agent. Codex starts only when assigned work and exits when that execution finishes.</p>
+            <p className="hint">Each group and side chat has its own session for this agent. Each harness starts only when assigned work and exits when that execution finishes.</p>
             {sessionList.map((s) => (
               <div key={s.id}>
                 <Badge variant="outline">
                   {s.active ? "Current" : "Reset"}
                 </Badge>
                 {" "}<strong>{groups.find((g) => g.id === s.group_id)?.name ?? s.group_id} · {s.side_chat_id ? `Side chat ${s.side_chat_id.slice(0, 8)}` : "Main chat"}</strong>
-                <p>{!s.active ? "Retired" : runs.some((r) => r.session_id === s.id && ["running", "starting"].includes(r.status)) ? "Working" : runs.some((r) => r.session_id === s.id && r.status === "queued") ? "Queued" : "Idle · resumes when triggered"}</p>
+                <p>{s.harness === "opencode" ? "OpenCode · " : "Codex · "}{!s.active ? "Retired" : runs.some((r) => r.session_id === s.id && ["running", "starting"].includes(r.status)) ? "Working" : runs.some((r) => r.session_id === s.id && r.status === "queued") ? "Queued" : "Idle · resumes when triggered"}</p>
                 <code>{s.native_id ?? "Not started yet"}</code>
                 <p>{s.workspace}</p>
                 {s.active && (

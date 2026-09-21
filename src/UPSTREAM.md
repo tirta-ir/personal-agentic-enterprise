@@ -127,3 +127,20 @@ Reuses the existing session key, native Codex exec/resume lifecycle, persisted m
 ## Sidebar sections, menus and mobile layout (2026-09-20)
 
 Reuses the installed [Base UI menu](https://github.com/mui/base-ui/tree/v1.8.0/packages/react/src/menu) from `@base-ui/react` 1.8.0 for sorting, section actions and moving groups, including its keyboard navigation, focus and touch handling. Existing shadcn/Base UI dialogs provide the archive browser and mobile drawer. The installed react-resizable-panels imperative collapse/expand API supplies desktop navigation hiding; the existing pointer and keyboard resize path remains. Sorting and dragging retain the attributed array-splice adaptation, extended to section membership. SQLite metadata and serde defaults preserve existing preferences without a schema migration. Model badges reuse saved Codex arguments and the existing catalog reader rather than inventing a model list. No new dependency or separate sidebar store was added.
+
+
+## OpenCode v2 multi-harness pilot (2026-09-20)
+
+Reuse the existing Paperclip-derived argument/event adapter, CCCC process ownership, SQLite queue/session machinery, native SSH bridge and enterprise MCP server. The [Paperclip OpenCode adapter](https://github.com/paperclipai/paperclip/tree/master/packages/adapters/opencode-local) informed event mapping; its older flags are not used blindly. Existing Paperclip MIT attribution remains in `vendor/PAPERCLIP-LICENSE`.
+
+Verified against installed OpenCode v2.0.11 and official source pinned to [9eb6902aaf3c35ce985b67c605a775992249066b](https://github.com/anomalyco/opencode/tree/9eb6902aaf3c35ce985b67c605a775992249066b): native noninteractive run, stdio server lifecycle, plugin activation inventory, model/skill registries and session-message metrics. Native v2 uses `--standalone`, stdin, `--session` and `provider/model#variant`; it does not emit Codex's completion frame. Code-mode tool receipts come from native `toolCalls` metadata. No OpenCode source is vendored.
+
+Catalog queries start a password-protected ephemeral loopback native server and wait for its plugin inventory before reading models/skills. The Rust bridge reuses already-resolved reqwest 0.12 (now a direct dependency); the remote bridge uses Python's urllib. No additional daemon, database, application server or orchestration framework is introduced.
+
+## Organization harness logos (2026-09-20)
+
+Codex and OpenCode SVG logos are vendored unchanged from [Lobe Icons](https://github.com/lobehub/lobe-icons/tree/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-svg/icons), pinned to `a94750e3f5f8fc33757b839d85030e742284e43a`. License: `vendor/LOBE-ICONS-LICENSE` (MIT). The shared organization/project card selects its local asset from the saved agent harness; no icon package or external image requests are added.
+
+## Native OpenCode providers (2026-09-20)
+
+Reuse the same pinned OpenCode v2 source's `packages/server/src/handlers/model.ts` for the native available/default model APIs, `packages/util/src/global-roots.ts` for workstation config/data discovery, and `packages/core/src/credential/sql.ts` for credential-only borrowing. The existing Codex compare-before-copyback pattern is applied to native credential refreshes through the already-installed SQLite libraries. The installed CLI initializes scoped database schemas; platform code never copies native chat history. No provider/model allowlist, pricing filter or new dependency. Catalog reads use workstation global/project configuration and saved native logins; runtime storage remains organization-scoped.

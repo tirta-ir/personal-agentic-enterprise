@@ -1,6 +1,6 @@
 # Agentic Enterprise
 
-A personal agent workspace with group and project chats, organization reporting lines, scoped delegation, an action board, knowledge, and local or remote workdirs. A native Rust backend serves a React/TypeScript frontend using shadcn UI and runs agents through Codex CLI.
+A personal agent workspace with group and project chats, organization reporting lines, scoped delegation, an action board, knowledge, and local or remote workdirs. A native Rust backend serves a React/TypeScript frontend using shadcn UI and runs agents through Codex CLI or OpenCode.
 
 ## Layout
 
@@ -11,7 +11,7 @@ A personal agent workspace with group and project chats, organization reporting 
 
 ## Native Windows setup
 
-Install Rust, Node.js/npm, PowerShell 7, Git, and Codex CLI, then sign in to Codex. From this directory:
+Install Rust, Node.js/npm, PowerShell 7, Git, and Codex CLI, then sign in to Codex. For OpenCode agents, install OpenCode v2 locally or on the saved remote workstation; available models come from that workstation’s native CLI configuration and connected providers. From this directory:
 
 ```powershell
 pwsh -NoProfile -File src/scripts/Build.ps1

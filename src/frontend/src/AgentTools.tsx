@@ -327,7 +327,7 @@ export function AgentSkills({
       </div>
       <code className="tools-workdir">{agent.workdir.path}</code>
       <p className="hint">
-        Project skills discovered by Codex, including inherited skills from this
+        Project skills discovered by the agent’s harness, including inherited skills from this
         repository.
       </p>
       <Button variant="outline" size="sm" onClick={onTerminal}>
@@ -380,7 +380,7 @@ export function AgentSkills({
                   <strong>{skill.name}</strong>
                   <p>{skill.description}</p>
                   <code>{skill.path}</code>
-                  {!skill.enabled && <small>Disabled in Codex settings</small>}
+                  {!skill.enabled && <small>Disabled in harness settings</small>}
                 </span>
               </button>
             ))}

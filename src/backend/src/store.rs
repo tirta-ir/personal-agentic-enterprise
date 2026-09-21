@@ -25,10 +25,24 @@ impl Store {
         )? {
             conn.execute_batch(include_str!("../../migrations/002-side-chat-sessions.sql"))?;
         }
+        if !conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('sessions') WHERE name='harness')",
+            [],
+            |r| r.get::<_, bool>(0),
+        )? {
+            conn.execute_batch(include_str!("../../migrations/003-harness-sessions.sql"))?;
+        }
         let store = Self {
             connection: Mutex::new(conn),
             org,
         };
+        store.write(|conn| {
+            conn.execute(
+                "INSERT OR IGNORE INTO metadata(key,value) VALUES('failure_review_started_at',?)",
+                [now()],
+            )?;
+            Ok(())
+        })?;
         let restored = store.org.join(".state/restore.pending");
         if restored.exists() {
             store.write(|tx| {
@@ -67,7 +81,7 @@ impl Store {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
                 Err(e) => return Err(e.into()),
             };
-            let agent = Agent { id: "ceo".into(), project_id: None, name: "CEO".into(), position: "Chief Executive Officer".into(), role: "Coordinate work and turn decisions into results.".into(), reports_to: None, color: "#52766a".into(), model: String::new(), reasoning: String::new(), instructions: "Work carefully in the attached codebase. Report what changed and provide verification evidence.".into(), agents_md, workdir: None, permission: "read-only".into(), timeout_seconds: 1800, enabled: true, deleted_at: None, revision: 1 };
+            let agent = Agent { id: "ceo".into(), harness: Harness::Codex, project_id: None, name: "CEO".into(), position: "Chief Executive Officer".into(), role: "Coordinate work and turn decisions into results.".into(), reports_to: None, color: "#52766a".into(), model: String::new(), reasoning: String::new(), instructions: "Work carefully in the attached codebase. Report what changed and provide verification evidence.".into(), agents_md, workdir: None, permission: "read-only".into(), timeout_seconds: 1800, enabled: true, deleted_at: None, revision: 1 };
             store.put("agents", &agent.id, &agent)?;
             store.put(
                 "groups",

@@ -9,6 +9,7 @@ mod coordination;
 mod group_scope;
 mod knowledge;
 mod model;
+mod opencode;
 mod process_tree;
 mod projects;
 mod questions;

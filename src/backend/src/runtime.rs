@@ -33,6 +33,7 @@ fn dispatch(app: &App) -> Result<()> {
     crate::schedules::tick(app)?;
     crate::actions::tick(app)?;
     coordination::summarize_ready(app)?;
+    coordination::review_failures(app)?;
     let runs = app.store.list::<Run>("runs")?;
     let mut active: Vec<Run> = runs
         .iter()
@@ -40,10 +41,7 @@ fn dispatch(app: &App) -> Result<()> {
         .cloned()
         .collect();
     for mut run in runs.into_iter().filter(|r| r.status == "queued") {
-        // Main work keeps its two slots; each side chat has its own two-slot queue.
-        if active.iter().filter(|r| same_queue(r, &run)).count() >= 2 {
-            continue;
-        }
+        // No workstation cap; ownership locks still protect sessions and workdirs.
         if active.iter().any(|r| conflicts(r, &run)) {
             continue;
         }
@@ -195,6 +193,12 @@ pub fn login_status(app: &App, agent_id: &str) -> Result<Value> {
     agent.workdir = app
         .store
         .read(|conn| crate::projects::workspace(conn, &agent))?;
+    if agent.harness == Harness::Opencode {
+        let settings = crate::opencode::settings(app, agent.workdir.as_ref())?;
+        return Ok(
+            json!({"ready":true,"message":format!("OpenCode ready · {} available models",settings.models.len()),"harness":"opencode"}),
+        );
+    }
     if let Some(workspace) = agent.workdir.filter(|w| w.ssh_host.is_some()) {
         let result = crate::remote::probe(&workspace);
         return Ok(
@@ -326,8 +330,9 @@ fn execute_turn(
         .as_ref()
         .context("Attach a workdir before running this agent")?;
     let remote_host = workspace.ssh_host.clone();
+    let opencode = run.profile.harness == Harness::Opencode;
     if remote_host.is_some() {
-        let connection = crate::remote::probe(workspace);
+        let connection = crate::remote::probe_for(workspace, run.profile.harness);
         anyhow::ensure!(
             connection.status == "online",
             "{}: {}",
@@ -344,7 +349,7 @@ fn execute_turn(
             |r| r.get(0),
         )?)
     })?;
-    let home = match &run.side_chat_id {
+    let mut home = match &run.side_chat_id {
         Some(side) => app
             .store
             .org
@@ -355,8 +360,11 @@ fn execute_turn(
             .join("codex"),
         None => runtime_home(app, &run.agent_id),
     };
+    if opencode {
+        home.set_file_name("opencode");
+    }
     std::fs::create_dir_all(&home)?;
-    let auth = if remote_host.is_none() {
+    let auth = if remote_host.is_none() && !opencode {
         Some(seed_auth(&home)?)
     } else {
         None
@@ -442,14 +450,20 @@ fn execute_turn(
     }
     let mut command = match &remote_host {
         Some(host) => crate::remote::command(host)?,
-        None => Command::new(&app.codex),
+        None => Command::new(if opencode {
+            crate::opencode::executable()?
+        } else {
+            app.codex.clone()
+        }),
     };
-    let settings = match &remote_host {
-        Some(host) => crate::remote::settings(host)?,
-        None => crate::codex_settings::read()?,
-    };
+    let settings = crate::opencode::settings_for(app, run.profile.harness, Some(workspace))?;
     let (selected_model, selected_reasoning) =
         settings.resolve(&run.profile.model, &run.profile.reasoning)?;
+    let opencode_auth = if opencode && remote_host.is_none() {
+        let lease = crate::opencode::seed_credentials(workspace, &home)?;
+        secrets.extend(lease.secrets());
+        Some(lease)
+    } else { None };
     run.model_display_name = settings
         .models
         .iter()
@@ -497,9 +511,28 @@ fn execute_turn(
         ]);
     }
     if !selected_model.is_empty() {
-        args.extend(["--model".into(), selected_model]);
+        args.extend(["--model".into(), selected_model.clone()]);
     }
-    if run.kind == RunKind::Coordinator && remote_host.is_none() {
+    if opencode {
+        args = vec![
+            "run".into(),
+            "--standalone".into(),
+            "--format".into(),
+            "json".into(),
+            "--auto".into(),
+            "--model".into(),
+            if selected_reasoning.is_empty() {
+                selected_model.clone()
+            } else {
+                format!("{selected_model}#{selected_reasoning}")
+            },
+        ];
+        if run.kind == RunKind::Coordinator {
+            prompt.push_str("\nReturn ONLY a JSON object matching this schema. No Markdown fences or commentary outside the JSON:\n");
+            prompt.push_str(include_str!("coordination-schema.json"));
+        }
+    }
+    if run.kind == RunKind::Coordinator && remote_host.is_none() && !opencode {
         let schema = home.join("coordination-schema.json");
         store::atomic_write(&schema, include_bytes!("coordination-schema.json"))?;
         args.extend([
@@ -516,7 +549,10 @@ fn execute_turn(
                 use base64::Engine;
                 remote_images.push(json!({"id":artifact.id,"data":base64::engine::general_purpose::STANDARD.encode(std::fs::read(path)?)}));
             } else {
-                args.extend(["--image".into(), path.to_string_lossy().into_owned()]);
+                args.extend([
+                    if opencode { "--file" } else { "--image" }.into(),
+                    path.to_string_lossy().into_owned(),
+                ]);
             }
         } else if artifact.media_type.starts_with("text/") {
             prompt.push_str(&format!(
@@ -526,7 +562,7 @@ fn execute_turn(
             ));
         } else {
             bail!(
-                "Attachment {} cannot be sent to Codex; only text and images are supported",
+                "Attachment {} cannot be sent to this harness; only text and images are supported",
                 artifact.name
             );
         }
@@ -537,22 +573,42 @@ fn execute_turn(
         "instructions":instruction,"arguments":args,"prompt":prompt,"images":remote_images,
         "timeout_seconds":run.profile.timeout_seconds,"native_session_id":run.native_session_id,
         "tool_token":tools_lease.token(),
-        "schema":(run.kind==RunKind::Coordinator).then(||include_str!("coordination-schema.json"))
+        "harness":run.profile.harness,"opencode_config":opencode.then(||crate::opencode::config(&home,&run.profile.permission,&selected_model,&app.address.to_string())),
+        "schema":(run.kind==RunKind::Coordinator && !opencode).then(||include_str!("coordination-schema.json"))
     }));
     if let Some(native) = &run.native_session_id {
-        args.extend(["resume".into(), native.clone()]);
+        args.extend([
+            if opencode { "--session" } else { "resume" }.into(),
+            native.clone(),
+        ]);
     }
-    args.push("-".into());
+    if !opencode {
+        args.push("-".into());
+    }
     if remote_host.is_none() {
         command.args(&args).current_dir(&workspace.path).env_clear();
         system_environment(&mut command);
         command
             .envs(&env)
+            .env("PWD", &workspace.path)
             .env("AE_TOOL_TOKEN", tools_lease.token())
             .env("CODEX_HOME", &home)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if opencode {
+            crate::opencode::environment(&mut command, Some(&home));
+            command.env(
+                "OPENCODE_CONFIG_CONTENT",
+                crate::opencode::config(
+                    &home,
+                    &run.profile.permission,
+                    &selected_model,
+                    &app.address.to_string(),
+                )
+                .to_string(),
+            );
+        }
     }
     #[cfg(windows)]
     let (mut child, owner) =
@@ -564,8 +620,8 @@ fn execute_turn(
     run.started_at.get_or_insert_with(now);
     run.executable = remote_host
         .as_ref()
-        .map(|h| format!("ssh:{h}/codex"))
-        .unwrap_or_else(|| app.codex.to_string_lossy().into_owned());
+        .map(|h| format!("ssh:{h}/{}", run.profile.harness.as_str()))
+        .unwrap_or_else(|| command.get_program().to_string_lossy().into_owned());
     run.arguments = args;
     app.store.put("runs", &run.id, run)?;
     let directory = app.store.org.join(".state/sessions").join(&run.session_id);
@@ -678,6 +734,14 @@ fn execute_turn(
             for (is_error, line) in rx.try_iter() {
                 protocol.capture(app, &run.id, &secrets, is_error, &line)?;
             }
+            // OpenCode's CLI terminates with an exit status, not Codex's turn.completed frame.
+            if opencode
+                && status.success()
+                && protocol.session.is_some()
+                && !protocol.text.is_empty()
+            {
+                protocol.completed = true;
+            }
             if protocol.bytes > 8 * 1024 * 1024 {
                 stopped = Some("failed");
                 run.error = Some("Run output exceeded 8 MiB".into());
@@ -699,7 +763,7 @@ fn execute_turn(
                 run.status = "failed".into();
                 run.error = Some(protocol.error.clone().unwrap_or_else(|| {
                     format!(
-                        "Codex ended without a valid completed reply (exit {:?}). {}",
+                        "Harness ended without a valid completed reply (exit {:?}). {}",
                         status.code(),
                         protocol.diagnostic.trim()
                     )
@@ -718,16 +782,31 @@ fn execute_turn(
         std::thread::sleep(Duration::from_millis(50));
     }
     run.native_session_id = protocol.session.or(run.native_session_id.clone());
+    if let Some(auth) = opencode_auth { auth.finish()?; }
     run.output = security::redacted(&protocol.text, &secrets);
     run.error = run
         .error
         .as_deref()
         .map(|text| security::redacted(text, &secrets));
     run.usage = protocol.usage;
+    if opencode
+        && run.native_session_id.is_some()
+        && !["cancelled", "timed_out", "interrupted"].contains(&run.status.as_str())
+    {
+        match crate::opencode::usage(app, run, &home) {
+            Ok(usage) => run.usage = Some(usage),
+            Err(error) => {
+                app.store.event(
+                    "run.usage_unavailable",
+                    json!({"run_id":run.id,"error":error.to_string()}),
+                )?;
+            }
+        }
+    }
     if run.status == "succeeded" && !crate::questions::unresolved(app, &run.id)?.is_empty() {
         anyhow::ensure!(
             run.native_session_id.is_some(),
-            "Codex asked a question without a resumable session"
+            "Harness asked a question without a resumable session"
         );
         // Code-mode can end a native turn while a tool call is still waiting.
         // Keep its queue slot and resume this same session only after an answer.
@@ -869,6 +948,9 @@ impl Protocol {
                             crate::questions::delivered(app, run_id, request)?;
                         }
                     }
+                    for request in opencode_question_deliveries(&value) {
+                        crate::questions::delivered(app, run_id, request)?;
+                    }
                 }
                 Err(_) => {
                     if !line.trim().is_empty() {
@@ -890,7 +972,18 @@ impl Protocol {
     }
 
     fn observe(&mut self, v: &Value) {
+        if let Some(session) = v["sessionID"].as_str() {
+            self.session = Some(session.into());
+        }
         match v["type"].as_str() {
+            Some("text") => {
+                if let Some(text) = v["part"]["text"].as_str() {
+                    self.text = text.into();
+                }
+            }
+            Some("step_finish") => {
+                self.usage = Some(v["part"].clone());
+            }
             Some("ae.remote.started") => self.remote_started = Some(v.clone()),
             Some("ae.remote.finished") => self.remote_finished = Some(v.clone()),
             Some("thread.started") => self.session = v["thread_id"].as_str().map(str::to_owned),
@@ -915,7 +1008,9 @@ impl Protocol {
                 self.error = Some(
                     v["message"]
                         .as_str()
-                        .unwrap_or("Codex protocol error")
+                        .or_else(|| v["error"]["message"].as_str())
+                        .or_else(|| v["error"]["data"]["message"].as_str())
+                        .unwrap_or("Harness protocol error")
                         .into(),
                 )
             }
@@ -924,9 +1019,45 @@ impl Protocol {
     }
 }
 
+fn opencode_question_deliveries(value: &Value) -> Vec<&str> {
+    if value["type"] != "tool_use" || value["part"]["state"]["status"] != "completed" {
+        return vec![];
+    }
+    let state = &value["part"]["state"];
+    if value["part"]["tool"] == "enterprise_ask_user" {
+        return state["input"]["request_id"].as_str().into_iter().collect();
+    }
+    state["metadata"]["metadata"]["toolCalls"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|call| call["tool"] == "enterprise.ask_user" && call["status"] == "completed")
+        .filter_map(|call| call["input"]["request_id"].as_str())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn opencode_events_preserve_session_reply_and_errors() {
+        let mut p = Protocol::default();
+        p.observe(
+            &json!({"type":"text","sessionID":"ses_native","part":{"text":"OpenCode reply"}}),
+        );
+        assert_eq!(p.session.as_deref(), Some("ses_native"));
+        assert_eq!(p.text, "OpenCode reply");
+        assert!(!p.completed);
+        let mut event = json!({"type":"tool_use","part":{"tool":"execute","state":{"status":"completed","metadata":{"metadata":{"toolCalls":[{"tool":"enterprise.ask_user","status":"completed","input":{"request_id":"native-question"}}]}}}}});
+        assert_eq!(
+            opencode_question_deliveries(&event),
+            vec!["native-question"]
+        );
+        event["part"]["state"]["metadata"]["metadata"]["toolCalls"][0]["status"] = "error".into();
+        assert!(opencode_question_deliveries(&event).is_empty());
+        p.observe(&json!({"type":"error","error":{"message":"Free model unavailable"}}));
+        assert_eq!(p.error.as_deref(), Some("Free model unavailable"));
+    }
     #[test]
     fn completed_message_is_not_completed_turn() {
         let mut p = Protocol::default();

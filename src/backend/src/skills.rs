@@ -1,4 +1,4 @@
-// Discovery and frontmatter parsing belong to Codex; reuse skills/list instead of a second scanner.
+// Discovery and frontmatter parsing belong to each native harness; no second scanner.
 use crate::{App, runtime, security, terminal};
 use anyhow::{Context, Result, ensure};
 use axum::{
@@ -68,7 +68,62 @@ fn read(app: &App, id: &str, selected: Option<&str>) -> Result<SkillList> {
     if let Some(host) = &workspace.ssh_host {
         let mut request = crate::remote::request(&workspace, "skills");
         request["reference"] = selected.into();
+        request["harness"] = json!(agent.harness);
+        request["namespace"] = crate::remote::namespace(app).into();
         return Ok(serde_json::from_value(crate::remote::call(host, request)?)?);
+    }
+    if agent.harness == crate::model::Harness::Opencode {
+        let response = crate::opencode::query(app, Some(&workspace), "/api/skill")?;
+        let root = PathBuf::from(workspace.git_root.as_deref().unwrap_or(&workspace.path))
+            .canonicalize()?;
+        let mut result = SkillList {
+            cwd: workspace.path.clone(),
+            skills: vec![],
+            errors: vec![],
+            text: None,
+        };
+        for value in response["data"]
+            .as_array()
+            .context("Invalid OpenCode skills response")?
+        {
+            let path = value["path"].as_str().context("Skill path missing")?;
+            let candidate = PathBuf::from(path);
+            if !candidate.is_absolute() || path.starts_with("/builtin/") {
+                continue;
+            }
+            let resolved = candidate.canonicalize()?;
+            if !resolved.starts_with(&root) {
+                continue;
+            }
+            let skill = Skill {
+                name: value["name"].as_str().unwrap_or("").into(),
+                description: value["description"].as_str().unwrap_or("").into(),
+                path: path.into(),
+                scope: "repo".into(),
+                enabled: true,
+            };
+            if selected == Some(path) {
+                let relative = resolved.strip_prefix(&root)?;
+                let safe = crate::api::contained(&root, &relative.to_string_lossy())?;
+                ensure!(
+                    safe.file_name().is_some_and(|n| n == "SKILL.md"),
+                    "Only SKILL.md can be previewed"
+                );
+                let bytes = std::fs::read(safe)?;
+                ensure!(
+                    bytes.len() <= 256 * 1024,
+                    "Skill exceeds 256 KiB preview limit"
+                );
+                result.text = Some(String::from_utf8(bytes)?);
+            }
+            result.skills.push(skill);
+        }
+        ensure!(
+            selected.is_none() || result.text.is_some(),
+            "Skill is no longer installed in this workdir; refresh the list"
+        );
+        result.skills.sort_by_key(|s| s.name.to_lowercase());
+        return Ok(result);
     }
     let home = runtime::runtime_home(app, id);
     std::fs::create_dir_all(&home)?;

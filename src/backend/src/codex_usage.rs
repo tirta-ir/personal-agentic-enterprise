@@ -12,6 +12,8 @@ use ts_rs::TS;
 pub struct UsageReport {
     pub checked_at: String,
     pub buckets: Vec<UsageBucket>,
+    #[serde(default)]
+    pub opencode_usage: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -65,6 +67,7 @@ fn parse(value: Value) -> Result<UsageReport> {
     Ok(UsageReport {
         checked_at: now(),
         buckets,
+        opencode_usage: None,
     })
 }
 
@@ -84,6 +87,70 @@ pub fn read(app: &App) -> Result<UsageReport> {
     );
     auth.finish()?;
     parse(result?)
+}
+
+pub fn read_for_group(
+    app: &App,
+    group_id: &str,
+    side_chat_id: Option<&str>,
+) -> Result<UsageReport> {
+    use crate::model::*;
+    let (codex, opencode) = app.store.read(|conn| {
+        let group: Group = crate::store::get(conn, "groups", group_id)?;
+        let scope = crate::group_scope::access(conn, &group)?;
+        let agents = crate::store::list::<Agent>(conn, "agents")?;
+        let included: Vec<_> = agents
+            .iter()
+            .filter(|a| scope.delegate_ids.contains(&a.id))
+            .collect();
+        Ok((
+            included.iter().any(|a| a.harness == Harness::Codex),
+            included.iter().any(|a| a.harness == Harness::Opencode),
+        ))
+    })?;
+    let mut report = if codex {
+        read(app)?
+    } else {
+        UsageReport {
+            checked_at: now(),
+            buckets: vec![],
+            opencode_usage: None,
+        }
+    };
+    if opencode {
+        let runs: Vec<_> = app
+            .store
+            .list::<Run>("runs")?
+            .into_iter()
+            .filter(|r| {
+                r.group_id == group_id
+                    && r.side_chat_id.as_deref() == side_chat_id
+                    && r.profile.harness == Harness::Opencode
+            })
+            .collect();
+        let measured: Vec<_> = runs.iter().filter_map(|r| r.usage.as_ref()).collect();
+        let input: u64 = measured
+            .iter()
+            .filter_map(|v| v["input_tokens"].as_u64())
+            .sum();
+        let output: u64 = measured
+            .iter()
+            .filter_map(|v| v["output_tokens"].as_u64())
+            .sum();
+        let cost: f64 = measured.iter().filter_map(|v| v["cost_usd"].as_f64()).sum();
+        let cost_label =
+            if measured.is_empty() || measured.iter().any(|v| v["cost_usd"].as_f64().is_none()) {
+                "not fully reported".to_owned()
+            } else {
+                format!("${cost:.6}")
+            };
+        report.opencode_usage = Some(format!(
+            "OpenCode · this conversation: {} runs, {} with reported usage. {input} input / {output} output tokens; reported cost {cost_label}. Account quota and reset times are not exposed by this integration; missing usage is not zero usage.",
+            runs.len(),
+            measured.len()
+        ));
+    }
+    Ok(report)
 }
 
 #[cfg(test)]

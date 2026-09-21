@@ -60,6 +60,7 @@ pub fn router(app: App, frontend: PathBuf) -> Router {
         .route("/api/actions/{id}/cancel", post(crate::actions::cancel))
         .route("/api/organization/layout", put(save_organization_layout))
         .route("/api/codex/settings", get(codex_catalog))
+        .route("/api/harness/settings", get(harness_catalog))
         .route("/api/agents", post(save_agent))
         .route("/api/agents/{id}", put(update_agent).delete(delete_agent))
         .route("/api/agents/{id}/restore", post(restore_agent))
@@ -138,6 +139,40 @@ async fn codex_catalog(Query(query): Query<FileQuery>) -> ApiResult<codex_settin
         ));
     }
     Ok(Json(codex_settings::read()?))
+}
+#[derive(Deserialize)]
+struct HarnessQuery {
+    #[serde(default)]
+    harness: Harness,
+    ssh_host: Option<String>,
+    agent_id: Option<String>,
+}
+async fn harness_catalog(
+    State(app): State<App>,
+    Query(query): Query<HarnessQuery>,
+) -> ApiResult<codex_settings::CodexSettings> {
+    Ok(Json(
+        tokio::task::spawn_blocking(move || -> Result<_> {
+            let workspace = if let Some(id) = query.agent_id {
+                let agent: Agent = app.store.get("agents", &id)?;
+                app.store
+                    .read(|conn| crate::projects::workspace(conn, &agent))?
+            } else {
+                query
+                    .ssh_host
+                    .filter(|h| !h.is_empty())
+                    .map(|ssh_host| Workspace {
+                        ssh_host: Some(ssh_host),
+                        path: String::new(),
+                        canonical_path: String::new(),
+                        git_root: None,
+                    })
+            };
+            crate::opencode::settings_for(&app, query.harness, workspace.as_ref())
+        })
+        .await
+        .map_err(anyhow::Error::from)??,
+    ))
 }
 async fn get_run(State(app): State<App>, Path(id): Path<String>) -> ApiResult<Run> {
     Ok(Json(app.store.get("runs", &id)?))
@@ -372,14 +407,8 @@ fn validate_agent(app: &App, agent: &mut Agent) -> Result<()> {
     let effective_workspace = app
         .store
         .read(|conn| crate::projects::workspace(conn, agent))?;
-    match effective_workspace
-        .as_ref()
-        .and_then(|w| w.ssh_host.as_deref())
-    {
-        Some(host) => crate::remote::settings(host)?,
-        None => codex_settings::read()?,
-    }
-    .resolve(&agent.model, &agent.reasoning)?;
+    crate::opencode::settings_for(app, agent.harness, effective_workspace.as_ref())?
+        .resolve(&agent.model, &agent.reasoning)?;
     ensure!(
         (10..=14400).contains(&agent.timeout_seconds),
         "Timeout must be 10–14400 seconds"
@@ -1246,7 +1275,7 @@ async fn run_events(State(app): State<App>, Path(id): Path<String>) -> ApiResult
     Ok(Json(app.store.read(|c|{let mut q=c.prepare("SELECT seq,kind,payload,created_at FROM events WHERE json_extract(payload,'$.run_id')=? ORDER BY seq LIMIT 10000")?;q.query_map([id],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?.map(|r|{let(seq,kind,payload,created_at)=r?;Ok(Event{seq,kind,payload:serde_json::from_str(&payload)?,created_at})}).collect()})?))
 }
 async fn sessions(State(app): State<App>) -> ApiResult<Vec<Value>> {
-    Ok(Json(app.store.read(|c|{let mut q=c.prepare("SELECT id,group_id,agent_id,workspace,native_id,active,side_chat_id FROM sessions ORDER BY rowid DESC")?;Ok(q.query_map([],|r|Ok(json!({"id":r.get::<_,String>(0)?,"group_id":r.get::<_,String>(1)?,"agent_id":r.get::<_,String>(2)?,"workspace":r.get::<_,String>(3)?,"native_id":r.get::<_,Option<String>>(4)?,"active":r.get::<_,bool>(5)?,"side_chat_id":r.get::<_,Option<String>>(6)?})))?.collect::<rusqlite::Result<Vec<_>>>()?)})?))
+    Ok(Json(app.store.read(|c|{let mut q=c.prepare("SELECT id,group_id,agent_id,workspace,native_id,active,side_chat_id,harness FROM sessions ORDER BY rowid DESC")?;Ok(q.query_map([],|r|Ok(json!({"id":r.get::<_,String>(0)?,"group_id":r.get::<_,String>(1)?,"agent_id":r.get::<_,String>(2)?,"workspace":r.get::<_,String>(3)?,"native_id":r.get::<_,Option<String>>(4)?,"active":r.get::<_,bool>(5)?,"side_chat_id":r.get::<_,Option<String>>(6)?,"harness":r.get::<_,String>(7)?})))?.collect::<rusqlite::Result<Vec<_>>>()?)})?))
 }
 async fn reset_session(State(app): State<App>, Path(id): Path<String>) -> ApiResult<Value> {
     app.store.write(|tx| {

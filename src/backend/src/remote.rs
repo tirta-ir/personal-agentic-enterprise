@@ -156,6 +156,9 @@ pub fn settings(host: &str) -> Result<codex_settings::CodexSettings> {
 }
 
 pub fn probe(workspace: &Workspace) -> Connection {
+    probe_for(workspace, Harness::Codex)
+}
+pub fn probe_for(workspace: &Workspace, harness: Harness) -> Connection {
     let host = workspace.ssh_host.clone().unwrap_or_default();
     let mut connection = Connection {
         host: host.clone(),
@@ -166,7 +169,9 @@ pub fn probe(workspace: &Workspace) -> Connection {
         os: String::new(),
         environment_keys: vec![],
     };
-    match call(&host, request(workspace, "probe")) {
+    let mut probe_request = request(workspace, "probe");
+    probe_request["harness"] = json!(harness);
+    match call(&host, probe_request) {
         Ok(value) => {
             connection.status = if value["ready"] == true {
                 "online"
@@ -187,13 +192,23 @@ pub fn probe(workspace: &Workspace) -> Connection {
         Err(error) => connection.message = error.to_string(),
     }
     if let Ok(mut entries) = cache().lock() {
-        entries.insert(workspace.identity(), connection.clone());
+        entries.insert(
+            format!("{}:{}", harness.as_str(), workspace.identity()),
+            connection.clone(),
+        );
     }
     connection
 }
 
 pub fn connection(workspace: &Workspace) -> Option<Connection> {
-    let mut value = cache().lock().ok()?.get(&workspace.identity())?.clone();
+    connection_for(workspace, Harness::Codex)
+}
+pub fn connection_for(workspace: &Workspace, harness: Harness) -> Option<Connection> {
+    let mut value = cache()
+        .lock()
+        .ok()?
+        .get(&format!("{}:{}", harness.as_str(), workspace.identity()))?
+        .clone();
     if chrono::DateTime::parse_from_rfc3339(&value.checked_at)
         .ok()
         .is_none_or(|time| chrono::Utc::now().signed_duration_since(time).num_seconds() > 90)
@@ -219,7 +234,7 @@ pub fn connections(app: &App) -> Result<BTreeMap<String, Connection>> {
             workspace.ssh_host.as_ref()?;
             Some((
                 agent.id.clone(),
-                connection(workspace).unwrap_or(Connection {
+                connection_for(workspace, agent.harness).unwrap_or(Connection {
                     host: workspace.ssh_host.clone().unwrap_or_default(),
                     status: "checking".into(),
                     checked_at: String::new(),
@@ -245,8 +260,14 @@ pub fn start_monitor(app: App) {
                     .into_iter()
                     .filter(|a| a.deleted_at.is_none())
                 {
-                    if let Some(workspace) = agent.workdir.filter(|w| w.ssh_host.is_some()) {
-                        workspaces.insert(workspace.identity(), workspace);
+                    let effective = check_app
+                        .store
+                        .read(|conn| crate::projects::workspace(conn, &agent))?;
+                    if let Some(workspace) = effective.filter(|w| w.ssh_host.is_some()) {
+                        workspaces.insert(
+                            format!("{}:{}", agent.harness.as_str(), workspace.identity()),
+                            (workspace, agent.harness),
+                        );
                     }
                 }
                 for group in check_app
@@ -256,11 +277,13 @@ pub fn start_monitor(app: App) {
                     .filter(|g| g.archived_at.is_none() && g.deleted_at.is_none())
                 {
                     if let Some(project) = group.project.filter(|p| p.workdir.ssh_host.is_some()) {
-                        workspaces.insert(project.workdir.identity(), project.workdir);
+                        workspaces
+                            .entry(format!("codex:{}", project.workdir.identity()))
+                            .or_insert((project.workdir, Harness::Codex));
                     }
                 }
-                for workspace in workspaces.values() {
-                    probe(workspace);
+                for (workspace, harness) in workspaces.values() {
+                    probe_for(workspace, *harness);
                     check_app
                         .store
                         .event("workstation.checked", json!({"host":workspace.ssh_host}))?;

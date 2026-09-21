@@ -228,6 +228,12 @@
   min-width: 0;
   flex: 1;
 }
+.org-card-harness {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
 .org-card-identity strong {
   display: block;
   font-size: 15px;

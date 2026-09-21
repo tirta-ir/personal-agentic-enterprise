@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
 base64 = "0.22"
 anstream = "=1.0.0"
 axum = { version = "=0.8.9", features = ["multipart"] }

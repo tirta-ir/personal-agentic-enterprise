@@ -64,7 +64,7 @@ export async function verifyChatCommands({
       usage.usage_report.buckets[0].secondary,
   );
   await expect(
-    page.getByRole("region", { name: "Codex account usage" }).last(),
+    page.getByRole("region", { name: "Harness usage" }).last(),
   ).toContainText("remaining");
   assert.equal(
     (await state()).runs.length,
@@ -265,7 +265,7 @@ export async function verifyChatCommands({
       "Pre-reset context leaked into native input",
     );
     assert(
-      !transcript.includes("Codex account usage"),
+      !transcript.includes("Harness usage"),
       "Usage command was forwarded into agent context",
     );
   }

@@ -37,10 +37,11 @@ export function MessageModelBadge({ runId, run, catalog }: { runId: string; run?
   // Saved CLI arguments preserve inherited defaults and profile settings as actually executed.
   // Never resolve an old message using today's profile or today's Codex defaults.
   const modelIndex = source.arguments.indexOf("--model");
-  const model = (modelIndex >= 0 ? source.arguments[modelIndex + 1] : "") || source.profile.model;
-  const effort = source.arguments.find((arg) => arg.startsWith("model_reasoning_effort="))?.split("=").slice(1).join("=").replaceAll('"', "") || source.profile.reasoning;
+  const modelArg = (modelIndex >= 0 ? source.arguments[modelIndex + 1] : "") || source.profile.model;
+  const [model, variant] = source.profile.harness === "opencode" ? modelArg.split("#") : [modelArg, undefined];
+  const effort = variant || source.arguments.find((arg) => arg.startsWith("model_reasoning_effort="))?.split("=").slice(1).join("=").replaceAll('"', "") || source.profile.reasoning;
   const displayName = source.model_display_name || catalog?.models.find((option) => option.slug === model)?.display_name || model;
-  return <span className="model-badge" title={`Recorded for this reply: ${model || "model not recorded"} / ${effort || "reasoning not recorded"}`}>
-    {displayName || "Model not recorded"}<span aria-hidden="true"> / </span><span className="reasoning-name">{effort || "not recorded"}</span>
+  return <span className="model-badge" title={`${source.profile.harness === "opencode" ? "OpenCode" : "Codex"} · Recorded for this reply: ${model || "model not recorded"} / ${effort || (source.profile.harness === "opencode" ? "model default" : "reasoning not recorded")}`}>
+    {displayName || "Model not recorded"}<span aria-hidden="true"> / </span><span className="reasoning-name">{effort || (source.profile.harness === "opencode" ? "default" : "not recorded")}</span>
   </span>;
 }

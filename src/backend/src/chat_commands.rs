@@ -38,7 +38,14 @@ pub async fn send(app: &App, mut input: SendInput) -> Result<Message> {
     }
     let usage = if command == "usage" {
         let app = app.clone();
-        Some(tokio::task::spawn_blocking(move || codex_usage::read(&app)).await??)
+        let group = input.group_id.clone();
+        let side = input.side_chat_id.clone();
+        Some(
+            tokio::task::spawn_blocking(move || {
+                codex_usage::read_for_group(&app, &group, side.as_deref())
+            })
+            .await??,
+        )
     } else {
         None
     };
@@ -90,7 +97,7 @@ pub(crate) fn record_as(
             "Fresh conversation started for every agent in this group, including your direct reports and all side chats. Your next message uses new sessions and fresh chat context. Visible history, agent instructions, files and scheduled tasks are preserved. Other groups are unchanged."
         }.to_owned()
     } else {
-        "Codex account usage".to_owned()
+        "Harness usage".to_owned()
     };
     let message = Message {
         id: input.id,

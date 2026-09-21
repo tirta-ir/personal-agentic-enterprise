@@ -23,6 +23,8 @@ pub struct Workspace {
 pub struct Agent {
     pub id: String,
     #[serde(default)]
+    pub harness: Harness,
+    #[serde(default)]
     pub project_id: Option<String>,
     pub name: String,
     #[serde(default)]
@@ -44,6 +46,23 @@ pub struct Agent {
     pub deleted_at: Option<String>,
     #[ts(type = "number")]
     pub revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum Harness {
+    #[default]
+    Codex,
+    Opencode,
+}
+impl Harness {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Codex => "codex",
+            Self::Opencode => "opencode",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -178,6 +197,7 @@ pub enum RunKind {
     Coordinator,
     Delegate,
     Summary,
+    Review,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

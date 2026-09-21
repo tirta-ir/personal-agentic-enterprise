@@ -11,6 +11,7 @@ import re
 import selectors
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
@@ -45,13 +46,17 @@ def run(command, **kwargs):
     return subprocess.run(command, capture_output=True, text=True, timeout=12, **kwargs)
 
 
-def codex():
-    paths = [str(Path.home() / ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin"]
+def codex(harness="codex"):
+    if harness == "opencode":
+        managed = Path.home()/".local/share/agentic-enterprise/tools/opencode/node_modules/.bin/opencode"
+        if managed.is_file():
+            return str(managed)
+    paths = [str(Path.home() / ".local/bin"), str(Path.home() / ".opencode/bin"), "/opt/homebrew/bin", "/usr/local/bin"]
     paths += [str(p) for p in sorted((Path.home() / ".nvm/versions/node").glob("*/bin"), reverse=True)]
     os.environ["PATH"] = os.pathsep.join(paths + [os.environ.get("PATH", "/usr/bin:/bin")])
-    found = shutil.which("codex")
+    found = shutil.which(harness)
     if not found:
-        raise ValueError("Codex CLI is not installed or is not on this workstation's PATH")
+        raise ValueError(f"{harness} CLI is not installed or is not on this workstation's PATH")
     return found
 
 
@@ -94,7 +99,7 @@ def dotenv(request, root):
     exec(request["dotenv_parser"], parser.__dict__)
     exec(request["dotenv_variables"], variables.__dict__)
     values = {}
-    reserved = {"PATH", "PATHEXT", "COMSPEC", "HOME", "USERPROFILE", "CODEX_HOME", "CODEX_THREAD_ID", "AE_ORG", "AE_TOKEN", "AE_TOOL_TOKEN", "RUST_LOG"}
+    reserved = {"PWD", "PATH", "PATHEXT", "COMSPEC", "HOME", "USERPROFILE", "CODEX_HOME", "CODEX_THREAD_ID", "AE_ORG", "AE_TOKEN", "AE_TOOL_TOKEN", "RUST_LOG", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR", "OPENCODE_DB", "OPENCODE_PASSWORD", "OPENCODE_SERVER_PASSWORD"}
     for binding in parser.parse_stream(io.StringIO(file.read_text(encoding="utf-8-sig"))):
         if binding.error:
             raise ValueError("Invalid workdir .env syntax; check key/value quoting")
@@ -150,9 +155,12 @@ def stop_group(process):
 
 def execute(request, ws, executable):
     terminal = request["op"] == "terminal"
+    opencode = request.get("harness") == "opencode" and not terminal
     root = Path(ws["canonical_path"])
     env = dict(os.environ)
     env.update(dotenv(request, root))
+    # OpenCode v2 resolves run location from PWD before process.cwd().
+    env["PWD"] = str(root)
     if request.get("tool_token"):
         env["AE_TOOL_TOKEN"] = request["tool_token"]
         SECRETS.append(request["tool_token"])
@@ -163,13 +171,20 @@ def execute(request, ws, executable):
     home.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(home, 0o700)
     source = codex_home() / "auth.json"
-    original = None if terminal else source.read_bytes()
+    original = None if terminal or opencode else source.read_bytes()
     target = home / "auth.json"
     if original is not None:
         target.write_bytes(original)
         os.chmod(target, 0o600)
     (home / "AGENTS.md").write_text(request["instructions"], encoding="utf-8")
     env["CODEX_HOME"] = str(home)
+    opencode_auth = None
+    if opencode:
+        opencode_auth = opencode_credentials(request, home)
+        opencode_environment(env,home)
+        config=request["opencode_config"]
+        config["instructions"]=[str(home/"AGENTS.md")]
+        env["OPENCODE_CONFIG_CONTENT"]=json.dumps(config)
     args = ["-lc", request["command"]] if terminal else request["arguments"]
     if request.get("schema"):
         schema = home / "coordination-schema.json"
@@ -181,10 +196,10 @@ def execute(request, ws, executable):
             raise ValueError("Invalid image identifier")
         file = home / (attachment["id"] + ".image")
         file.write_bytes(base64.b64decode(attachment["data"], validate=True))
-        args += ["--image", str(file)]
+        args += ["--file" if opencode else "--image", str(file)]
     if request.get("native_session_id"):
-        args += ["resume", request["native_session_id"]]
-    if not terminal:
+        args += ["--session" if opencode else "resume", request["native_session_id"]]
+    if not terminal and not opencode:
         args += ["-"]
     process = subprocess.Popen([executable, *args], cwd=root, env=env, stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
@@ -277,6 +292,8 @@ def execute(request, ws, executable):
                 return process.returncode if reason is None else 1
     finally:
         stop_group(process)
+        if opencode_auth:
+            opencode_credentials_finish(opencode_auth)
         # Never replace a newer native login with stale scoped credentials.
         if original is not None and source.read_bytes() == original and target.exists():
             updated = target.read_bytes()
@@ -347,8 +364,122 @@ def skills(request, root, executable):
         stop_group(process)
 
 
+def opencode_environment(env,home=None):
+    if home is not None:
+        for key,folder in (("XDG_DATA_HOME","data"),("XDG_CACHE_HOME","cache"),("XDG_STATE_HOME","state")):
+            env[key]=str(home/folder)
+        env["OPENCODE_DB"]=str(home/"data/opencode/opencode.db")
+    env["OPENCODE_CONFIG_CONTENT"]=json.dumps({"share":"disabled","autoupdate":False})
+
+
+def opencode_credentials(request, home):
+    # The native CLI owns migrations; borrow only credentials, never its chats.
+    source=Path(os.environ.get("XDG_DATA_HOME",str(Path.home()/".local/share")))/"opencode"/os.environ.get("OPENCODE_DB","opencode.db")
+    target=home/"data/opencode/opencode.db"
+    if not target.exists():
+        opencode_query({**request,"route":"/api/model","runtime_session_id":request["session_id"]})
+    native=sqlite3.connect(source.as_uri()+"?mode=ro",uri=True)
+    columns="id,integration_id,label,value,connector_id,method_id,active,time_created,time_updated"
+    try: rows=native.execute("SELECT "+columns+" FROM credential").fetchall()
+    finally: native.close()
+    scoped=sqlite3.connect(target,timeout=5)
+    try:
+        with scoped:
+            scoped.execute("DELETE FROM credential")
+            scoped.executemany("INSERT INTO credential ("+columns+") VALUES (?,?,?,?,?,?,?,?,?)",rows)
+    finally: scoped.close()
+    for row in rows:
+        value=json.loads(row[3])
+        SECRETS.extend(value[k] for k in ("key","access","refresh") if isinstance(value.get(k),str))
+    return source,target,rows
+
+
+def opencode_credentials_finish(lease):
+    source,target,rows=lease
+    native=sqlite3.connect(source,timeout=5)
+    scoped=sqlite3.connect(target.as_uri()+"?mode=ro",uri=True)
+    try:
+        with native:
+            for row in rows:
+                updated=scoped.execute("SELECT value,time_updated FROM credential WHERE id=?",(row[0],)).fetchone()
+                if updated and updated[0]!=row[3]:
+                    native.execute("UPDATE credential SET value=?,time_updated=? WHERE id=? AND value=?",(*updated,row[0],row[3]))
+    finally:
+        scoped.close()
+        native.close()
+
+
+def opencode_query(request):
+    # Native registry queries need to wait for plugin settlement in OpenCode v2.
+    import base64
+    import queue
+    import secrets
+    import threading
+    import urllib.request
+    import urllib.parse
+    namespace=request["namespace"]
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,80}",namespace):
+        raise ValueError("Invalid runtime namespace")
+    route=request["route"]
+    session=request.get("runtime_session_id")
+    if route not in ("/api/model","/api/skill") and not (session and re.fullmatch(r"/api/session/ses_[A-Za-z0-9]+/message\?limit=200&order=desc",route)):
+        raise ValueError("Unsupported OpenCode registry")
+    home=Path.home()/".local/share/agentic-enterprise"/namespace/"opencode-catalog"
+    if session:
+        if not re.fullmatch(r"[A-Za-z0-9-]{1,80}",session): raise ValueError("Invalid runtime session")
+        home=home.parent/"sessions"/session
+    home.mkdir(parents=True,exist_ok=True,mode=0o700)
+    env=dict(os.environ)
+    opencode_environment(env,home if session else None)
+    if request.get("path"):
+        env.update(dotenv(request,Path(request["path"])))
+        env["PWD"]=request["path"]
+    password=secrets.token_hex(32)
+    env["OPENCODE_PASSWORD"]=password
+    process=subprocess.Popen([codex("opencode"),"serve","--stdio","--hostname","127.0.0.1","--port","0"],
+        cwd=request.get("path") or Path.home(),env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
+    ready=queue.Queue()
+    threading.Thread(target=lambda:ready.put(process.stdout.readline(65536)),daemon=True).start()
+    threading.Thread(target=lambda:process.stderr.read(65536),daemon=True).start()
+    try:
+        try: line=ready.get(timeout=15)
+        except queue.Empty as error: raise ValueError("OpenCode private server did not become ready") from error
+        url=json.loads(line)["url"]
+        if not re.fullmatch(r"http://127\.0\.0\.1:\d+",url):
+            raise ValueError("Unexpected OpenCode server address")
+        auth="Basic "+base64.b64encode(("opencode:"+password).encode()).decode()
+        opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        query="?"+urllib.parse.urlencode({"location[directory]":request["path"]}) if request.get("path") else ""
+        def fetch(endpoint):
+            separator="&" if "?" in endpoint else "?"
+            location=separator+query[1:] if query else ""
+            with opener.open(urllib.request.Request(url+endpoint+location,headers={"Authorization":auth}),timeout=5) as response:
+                return json.load(response)
+        if route in ("/api/model","/api/skill"):
+            started=time.monotonic()
+            while True:
+                plugins=fetch("/api/plugin")["data"]
+                if plugins:
+                    if any(p["state"]["status"]!="active" for p in plugins):
+                        raise ValueError("An OpenCode plugin failed to activate; check the workstation's OpenCode setup")
+                    break
+                if time.monotonic()-started>20: raise ValueError("OpenCode plugins did not become ready")
+                time.sleep(.25)
+        value=fetch(route)
+        if route=="/api/model":
+            value["default"]=fetch("/api/model/default")["data"]
+            value["data"]=[{k:m.get(k) for k in ("id","providerID","name","variants","capabilities","cost","enabled","status")} for m in value["data"]]
+        return value
+    finally:
+        process.stdin.close()
+        stop_group(process)
+
+
 def main(request):
     op = request["op"]
+    if op == "opencode_query":
+        emit(opencode_query(request))
+        return 0
     if op == "directories":
         root = safe_path(Path(request.get("path") or Path.home()).resolve(strict=True))
         folders = []
@@ -394,11 +525,39 @@ def main(request):
             else:
                 emit({"text": data.decode("utf-8"), "base": str(root)})
         return 0
-    executable = codex()
+    harness = request.get("harness", "codex")
+    if harness not in ("codex","opencode"):
+        raise ValueError("Unsupported harness")
+    executable = codex(harness)
     if op == "skills":
+        if harness == "opencode":
+            values=opencode_query({**request,"route":"/api/skill"})["data"]
+            skills=[]
+            text=None
+            boundary=Path(ws.get("git_root") or root).resolve()
+            for skill in values:
+                if skill["path"].startswith("/builtin/"): continue
+                path=Path(skill["path"]).resolve(strict=True)
+                if not path.is_relative_to(boundary):
+                    continue
+                skills.append({"name":skill["name"],"description":skill.get("description", ""),"path":skill["path"],"scope":"repo","enabled":True})
+                if request.get("reference")==skill["path"]:
+                    if path.name!="SKILL.md": raise ValueError("Only SKILL.md can be previewed")
+                    safe=contained(boundary,str(path))
+                    if safe.stat().st_size>256*1024: raise ValueError("Skill exceeds 256 KiB preview limit")
+                    text=safe.read_text(encoding="utf-8")
+            if request.get("reference") and text is None: raise ValueError("Skill is no longer installed in this workdir")
+            emit({"cwd":str(root),"skills":sorted(skills,key=lambda s:s["name"].lower()),"errors":[],"text":text})
+            return 0
         return skills(request, root, executable)
     if op == "probe":
         version = run([executable, "--version"])
+        if harness == "opencode":
+            env = dotenv(request, root)
+            ready = version.returncode==0 and re.search(r"(?:^|\s)v?2\.\d+\.\d+(?:[-+].*)?$",version.stdout.strip()) is not None
+            emit({"ready":ready,"message":"OpenCode v2 installed; model availability is checked before each run" if ready else "Install OpenCode v2 for this integration", "version":version.stdout.strip(),
+                  "executable":executable,"os":os.uname().sysname,"environment_keys":list(env),"workspace":ws})
+            return 0
         login = run([executable, "login", "status"])
         env = dotenv(request, root)
         emit({"ready": login.returncode == 0 and version.returncode == 0,

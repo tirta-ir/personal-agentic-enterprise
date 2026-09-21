@@ -164,7 +164,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "chat_usage",
-            "Equivalent to /usage: read the platform's signed-in Codex account quota (not remote workstation accounts).",
+            "Equivalent to /usage: this conversation's recorded OpenCode tokens/cost and the platform Codex account quota when Codex participates. OpenCode account quota/reset times are unavailable.",
             json!({}),
             &[],
         ),
@@ -200,7 +200,11 @@ fn call(app: &App, run: &Run, name: &str, args: Value) -> Result<Value> {
         return crate::questions::ask(app, run, args);
     }
     if name == "chat_usage" {
-        return Ok(serde_json::to_value(crate::codex_usage::read(app)?)?);
+        return Ok(serde_json::to_value(crate::codex_usage::read_for_group(
+            app,
+            &run.group_id,
+            run.side_chat_id.as_deref(),
+        )?)?);
     }
     let result = app.store.write(|conn| {
         let current: Run = store::get(conn, "runs", &run.id)?;
@@ -222,7 +226,7 @@ fn call(app: &App, run: &Run, name: &str, args: Value) -> Result<Value> {
                 if participates(conn, &group.id, &run.agent_id).is_ok() {
                     let scope = group_scope::access(conn, &group)?;
                     let members: Vec<_> = store::list::<Agent>(conn, "agents")?.into_iter().filter(|a| scope.delegate_ids.contains(&a.id))
-                        .map(|a| json!({"id":a.id,"name":a.name,"position":a.position,"enabled":a.enabled,"project_id":a.project_id,"remote_host":a.workdir.and_then(|w|w.ssh_host)})).collect();
+                        .map(|a| json!({"id":a.id,"name":a.name,"position":a.position,"harness":a.harness,"enabled":a.enabled,"project_id":a.project_id,"remote_host":a.workdir.and_then(|w|w.ssh_host)})).collect();
                     groups.push(json!({"id":group.id,"name":group.name,"project":group.project,"access":scope,"members":members}));
                 }
             }
@@ -241,7 +245,7 @@ fn call(app: &App, run: &Run, name: &str, args: Value) -> Result<Value> {
             }
             return Ok(json!({"handoffs":result}));
         }
-        ensure!(run.kind != RunKind::Summary, "Summary runs may read tools but cannot create another invocation");
+        ensure!(![RunKind::Summary, RunKind::Review].contains(&run.kind), "Summary and failure-review runs may read tools but cannot create another invocation");
         let request = field(&args, "request_id")?;
         crate::security::validate_id(request)?;
         let key = format!("{}:{request}", run.id);

@@ -106,7 +106,7 @@ impl CodexSettings {
     pub fn resolve(&self, model: &str, reasoning: &str) -> Result<(String, String)> {
         let model = if model.is_empty() { &self.model } else { model };
         let selected = self.models.iter().find(|m| m.slug == model)
-            .context("This model is not in your Codex catalog. Refresh models and choose an available model.")?;
+            .context("This model is not in the selected harness catalog. Refresh models and choose an available model.")?;
         let effort = if !reasoning.is_empty() {
             reasoning
         } else if model == self.model {
@@ -115,10 +115,11 @@ impl CodexSettings {
             &selected.default_reasoning_level
         };
         ensure!(
-            selected
-                .supported_reasoning_levels
-                .iter()
-                .any(|r| r.effort == effort),
+            (effort.is_empty() && selected.default_reasoning_level.is_empty())
+                || selected
+                    .supported_reasoning_levels
+                    .iter()
+                    .any(|r| r.effort == effort),
             "Reasoning effort '{effort}' is not supported by {model}. Choose a supported effort."
         );
         Ok((model.to_owned(), effort.to_owned()))

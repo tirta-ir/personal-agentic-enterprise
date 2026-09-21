@@ -113,6 +113,17 @@ function PersonCard({ id, data, selected }: NodeProps<PersonNode>) {
             {agent && !agent.enabled ? " · Paused" : ""}
           </span>
         </div>
+        {agent && (
+          <img
+            className="org-card-harness"
+            src={`/harnesses/${agent.harness}.svg`}
+            alt={agent.harness === "opencode" ? "OpenCode" : "Codex"}
+            title={agent.harness === "opencode" ? "OpenCode" : "Codex"}
+            width={22}
+            height={22}
+            draggable={false}
+          />
+        )}
       </div>
       <p className="org-card-role" title={agent?.role || undefined}>
         {owner
