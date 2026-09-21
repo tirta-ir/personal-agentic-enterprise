@@ -157,6 +157,20 @@ and invitations are not offered and no permission alert is shown. Owner/member
 screens are checked at 1440, 705 and 375 pixels with no horizontal page overflow.
 Screenshots are stored under the ignored verification directory and visually reviewed.
 
+## Message ownership correction (2026-09-22)
+
+Own-message alignment now compares the sender with the authenticated user instead
+of the literal bootstrap `owner` identity. Own messages are blue, right-aligned and
+labeled "You"; other humans and agents stay left-aligned. Reply previews use the
+same viewer identity and retain names for other humans.
+
+`verify-message-identity.mjs` passed against existing Mac deployment history in
+separate Alice and owner sessions. It checked platform and Matrix-originated human
+messages, agent replies, both reply-preview labels, and computed blue bubble color
+`rgb(20, 86, 199)`. Both sessions reported zero page errors. No messages were sent
+or history changed by this verification. The Alice screenshot was visually reviewed.
+Frontend lint/build and the Mac Docker build passed.
+
 ## Practical limits
 
 - Native clean-machine installation was not run on all three OS families. Windows native

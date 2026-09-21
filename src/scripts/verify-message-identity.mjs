@@ -1,0 +1,52 @@
+import { createRequire } from 'node:module';
+import { readFile, mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import assert from 'node:assert/strict';
+const require = createRequire(new URL('../frontend/package.json', import.meta.url));
+const { chromium } = require('@playwright/test');
+const [url, keyFile, usersFile, output] = process.argv.slice(2);
+assert(url && keyFile && usersFile && output, 'Usage: node verify-message-identity.mjs CHAT_URL OWNER_KEY USERS_JSON OUTPUT_DIR');
+const users = JSON.parse(await readFile(usersFile, 'utf8'));
+await mkdir(output, { recursive: true });
+const browser = await chromium.launch({ headless: true, channel: process.platform === 'win32' ? 'msedge' : undefined });
+const results = [];
+try {
+  for (const identity of ['alice', 'owner']) {
+    const context = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+    const response = await context.request.post(new URL('/api/login', url).href, { data: identity === 'alice' ? { username: 'alice', password: users.alice } : { token: (await readFile(keyFile, 'utf8')).trim() } });
+    assert.equal(response.status(), 200);
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(url);
+    const alice = page.locator('article.message').filter({ has: page.getByText('Human room post', { exact: true }) });
+    const owner = page.locator('article.message').filter({ has: page.getByText('Reply exactly DECENTRALIZED_SMOKE_OK. Do not call tools.', { exact: true }) });
+    await alice.waitFor();
+    const own = identity === 'alice' ? alice : owner;
+    const other = identity === 'alice' ? owner : alice;
+    assert.match(await own.getAttribute('class'), /message-self/);
+    assert.doesNotMatch(await other.getAttribute('class'), /message-self/);
+    const agentReply = page.locator('article.message').filter({ has: page.getByText('DECENTRALIZED_SMOKE_OK', { exact: true }) });
+    assert.doesNotMatch(await agentReply.getAttribute('class'), /message-self/);
+    const matrixReply = page.locator('article.message').filter({ has: page.getByText(/^NATIVE_MATRIX_/) });
+    assert.equal((await matrixReply.getAttribute('class')).includes('message-self'), identity === 'alice');
+    assert.equal(await own.locator('.message-heading strong').innerText(), 'You');
+    const styling = await own.evaluate(article => ({ direction: getComputedStyle(article).flexDirection, background: getComputedStyle(article.querySelector('.message-bubble')).backgroundColor, primary: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() }));
+    assert.equal(styling.direction, 'row-reverse');
+    assert.notEqual(styling.background, await other.locator('.message-bubble').evaluate(bubble => getComputedStyle(bubble).backgroundColor));
+    assert.equal(styling.background, await own.evaluate(article => { const c = getComputedStyle(article.querySelector('.message-bubble')); return c.borderTopColor; }));
+    await own.getByRole('button', { name: 'Reply', exact: true }).click();
+    assert.match(await page.locator('.reply-preview').innerText(), /Replying to you/);
+    await page.getByRole('button', { name: 'Cancel reply' }).click();
+    await other.getByRole('button', { name: 'Reply', exact: true }).click();
+    assert.match(await page.locator('.reply-preview').innerText(), identity === 'alice' ? /Replying to Workspace owner/ : /Replying to @alice:agentic.local/);
+    await page.getByRole('button', { name: 'Cancel reply' }).click();
+    await own.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: resolve(output, `${identity}-messages.png`), animations: 'disabled' });
+    assert.deepEqual(errors, []);
+    results.push({ identity, ownMessagesRight: true, otherHumansLeft: true, replyLabels: true, styling, pageErrors: errors });
+    await context.request.post(new URL('/api/logout', url).href);
+    await context.close();
+  }
+  console.log(JSON.stringify(results));
+} finally { await browser.close(); }

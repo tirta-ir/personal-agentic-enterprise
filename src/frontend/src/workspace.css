@@ -484,10 +484,10 @@ code {
   flex-direction: column;
   align-items: flex-start;
 }
-.message-owner {
+.message-self {
   flex-direction: row-reverse;
 }
-.message-owner .message-content {
+.message-self .message-content {
   align-items: flex-end;
 }
 .message-bubble {
@@ -500,7 +500,7 @@ code {
   color: var(--foreground);
   box-shadow: 0 2px 5px color-mix(in srgb, var(--gauss-900) 3%, transparent);
 }
-.message-owner .message-bubble {
+.message-self .message-bubble {
   --foreground: var(--primary-foreground);
   --muted-foreground: color-mix(in srgb, var(--primary-foreground) 90%, transparent);
   --background: color-mix(in srgb, var(--gauss-900) 30%, var(--primary));
@@ -510,7 +510,7 @@ code {
   border-color: var(--primary);
   border-radius: 18px 6px 18px 18px;
 }
-.message-owner .message-bubble a {
+.message-self .message-bubble a {
   color: var(--primary-foreground);
 }
 .message-system .message-bubble {
@@ -558,10 +558,10 @@ code {
   min-height: 20px;
   flex-wrap: wrap;
 }
-.message-owner .message-heading {
+.message-self .message-heading {
   justify-content: flex-end;
 }
-.message-owner .reply-action {
+.message-self .reply-action {
   margin-left: 0;
   margin-right: auto;
   order: -1;

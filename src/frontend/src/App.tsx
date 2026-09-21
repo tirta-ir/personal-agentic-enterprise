@@ -778,10 +778,12 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                     </div>
                   )}
                   {messages.map((m) => {
+                    const isSelf = m.sender === user;
+                    const isHuman = m.sender === "owner" || m.sender.startsWith("@");
                     const sender = allAgents.find((a) => a.id === m.sender);
                     const position = sender?.position || data?.runs.find((run) => run.id === m.run_id)?.profile.position;
                     return (
-                    <article className={`message message-${m.sender === "owner" ? "owner" : m.sender === "system" ? "system" : "agent"}`} key={m.id}>
+                    <article className={`message message-${isSelf ? "self" : m.sender === "system" ? "system" : isHuman ? "human" : "agent"}`} key={m.id}>
                       {m.sender === "system" ? (
                         <div className="avatar system-avatar">
                           <Slash size={17} />
@@ -789,23 +791,23 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                       ) : (
                         <Avatar
                           agent={allAgents.find((a) => a.id === m.sender)}
-                          owner={m.sender === "owner" || m.sender.startsWith("@")}
+                          owner={isHuman}
                         />
                       )}
                       <div className="message-content">
                         <div className="message-heading">
                           <strong>
-                            {m.sender === "system"
+                            {isSelf ? "You" : m.sender === "system"
                               ? "Agentic Enterprise"
                               : m.sender === "owner"
                                 ? "Workspace owner"
                                 : (allAgents.find((a) => a.id === m.sender)
                                     ?.name ?? m.sender)}
                           </strong>
-                          {m.sender !== "owner" && m.sender !== "system" && position && (
+                          {!isHuman && m.sender !== "system" && position && (
                             <span className="bot-badge" title={position}>{position}</span>
                           )}
-                          {m.sender !== "owner" && m.sender !== "system" && m.run_id && (
+                          {!isHuman && m.sender !== "system" && m.run_id && (
                             <MessageModelBadge runId={m.run_id} run={data?.runs.find((r) => r.id === m.run_id)} catalog={catalog} />
                           )}
                           {m.schedule_id && (
@@ -871,7 +873,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                             <Check size={13} /> View execution evidence
                           </button>
                         )}
-                        {(m.sender === "owner" || m.sender.startsWith("@")) &&
+                        {isHuman &&
                           data?.runs
                             .filter((r) => r.message_id === m.id)
                             .map((r) => (
@@ -948,12 +950,13 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                   {reply && (
                     <div className="reply-preview">
                       Replying to{" "}
-                      {reply.sender === "owner"
+                      {reply.sender === user
                         ? "you"
+                        : reply.sender === "owner" ? "Workspace owner"
                         : reply.sender === "system"
                           ? "Agentic Enterprise"
                           : data?.agents.find((a) => a.id === reply.sender)
-                              ?.name}
+                              ?.name ?? reply.sender}
                       : {reply.body.slice(0, 90)}
                       <button
                         aria-label="Cancel reply"
