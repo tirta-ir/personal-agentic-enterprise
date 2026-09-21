@@ -52,7 +52,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { CommandInput, UsageCard } from "./ChatCommands";
+import { CommandInput, UsageCard, type CommandInputHandle } from "./ChatCommands";
 import { GroupList } from "./GroupList";
 import { ArchivedGroups } from "./ArchivedGroups";
 import { ChatActivity, MessageModelBadge } from "./ChatActivity";
@@ -329,7 +329,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
   const allAgents = [...organizationAgents, ...(data?.deleted_agents ?? [])];
   const groupAccess = data?.group_access?.[groupId];
   const participants = organizationAgents.filter((agent) => !groupAccess || groupAccess.participant_ids.includes(agent.id));
-  const [mentionOpen, setMentionOpen] = useState(false);
+  const composerInput = useRef<CommandInputHandle>(null);
   const mentionedAgents = /@all\b/i.test(draft)
     ? participants.filter((a) => a.enabled)
     : participants.filter((a) =>
@@ -967,10 +967,11 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                     </div>
                   )}
                   <div className="composer">
-                    {mentionOpen && <div className="slash-picker" role="dialog" aria-label="Mention an agent">{participants.filter(a=>a.enabled).map(a=><button key={a.id} onClick={()=>{setDraft(v=>`${v}${v&&!v.endsWith(" ")?" ":""}@${a.id} `);setMentionOpen(false);queueMicrotask(()=>document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus());}}>{a.name} · {a.position}</button>)}<button onClick={()=>setMentionOpen(false)}>Close</button></div>}
                     <CommandInput
                       key={`${groupId}:${sideChatId ?? "main"}`}
                       value={draft}
+                      agents={participants}
+                      ref={composerInput}
                       onChange={setDraft}
                       onSend={() => void send()}
                       busy={busy}
@@ -995,7 +996,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                       </div>
                     )}
                     <div className="composer-footer">
-                      <button aria-label="Mention an agent" aria-expanded={mentionOpen} onClick={()=>setMentionOpen(v=>!v)}> @ </button>
+                      <button aria-label="Mention an agent" onMouseDown={e=>e.preventDefault()} onClick={()=>composerInput.current?.openMentions()}> @ </button>
                       <button
                         aria-label="Attach file"
                         onClick={() => uploadRef.current?.click()}

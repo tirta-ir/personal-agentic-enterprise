@@ -171,6 +171,21 @@ messages, agent replies, both reply-preview labels, and computed blue bubble col
 or history changed by this verification. The Alice screenshot was visually reviewed.
 Frontend lint/build and the Mac Docker build passed.
 
+## Agent mention autocomplete (2026-09-22)
+
+Typing `@` at the cursor opens a filtered list of enabled agents in the current
+room above the composer. Arrow keys navigate; Enter or Tab inserts the stable
+agent mention without sending; Escape dismisses. Mouse selection, insertion in
+existing text, the toolbar button, and slash command completion remain supported.
+Email addresses do not trigger the list. No-match queries show an explicit state.
+
+`verify-mention-ui.mjs` passed against the Mac Docker deployment: 14 eligible agents
+in General, two in an explicitly scoped room, filtering, keyboard selection,
+caret insertion, no-match/Escape, email handling, slash commands, and the toolbar
+button. The popover fit above the input at 1200px and 375px. Screenshots were
+visually reviewed; zero messages were sent and zero page errors were recorded.
+Frontend lint/build and the Docker deployment passed.
+
 ## Practical limits
 
 - Native clean-machine installation was not run on all three OS families. Windows native

@@ -19,8 +19,8 @@ try {
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   const mention=page.getByRole('button',{name:'Mention an agent',exact:true});
   await mention.waitFor();await mention.click();
-  const picker=page.getByRole('dialog',{name:'Mention an agent'});
-  await picker.getByRole('button',{name:/CEO/}).click();
+  const picker=page.getByRole('listbox',{name:'Mention an agent'});
+  await picker.getByRole('option',{name:/CEO/}).click();
   assert((await page.getByRole('textbox',{name:'Message',exact:true}).inputValue()).includes('@ceo '));
   await page.screenshot({path:resolve(output,'mention-picker.png'),fullPage:true,animations:"disabled"});
   await page.getByRole('button',{name:'Manage workspaces'}).click();

@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
-import { Gauge, RotateCcw, MessagesSquare } from "lucide-react";
+import { useRef, useState, useImperativeHandle, type Ref } from "react";
+import { Gauge, RotateCcw, MessagesSquare, Bot } from "lucide-react";
+import type { Agent } from "./bindings/Agent";
 import type { UsageReport } from "./bindings/UsageReport";
 import type { UsageWindow } from "./bindings/UsageWindow";
 
@@ -17,22 +18,60 @@ const commands = [
   },
 ];
 
+export type CommandInputHandle = { openMentions: () => void };
+
 export function CommandInput({
   value,
   onChange,
   onSend,
   placeholder,
   busy,
+  agents,
+  ref,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
   placeholder: string;
   busy: boolean;
+  agents: Agent[];
+  ref: Ref<CommandInputHandle>;
 }) {
   const [selected, setSelected] = useState(0);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const mentionList = useRef<HTMLDivElement>(null);
+  const [caret, setCaret] = useState(0);
+  const [focused, setFocused] = useState(false);
+  const [selectionEmpty, setSelectionEmpty] = useState(true);
+  const [dismissedMention, setDismissedMention] = useState("");
+  const mention = value.slice(0, caret).match(/(?:^|[\s([{])@([\p{L}\p{N}_.-]*)$/u);
+  const mentionKey = `${caret}:${value}`;
+  const mentionOpen = focused && selectionEmpty && !!mention && dismissedMention !== mentionKey;
+  const agentMatches = mentionOpen ? agents.filter(agent => agent.enabled && `${agent.name} ${agent.id}`.toLocaleLowerCase().includes(mention![1].toLocaleLowerCase())) : [];
+  const activeAgent = Math.min(selected, agentMatches.length - 1);
+  useImperativeHandle(ref, () => ({ openMentions() {
+    const start = input.current?.selectionStart ?? value.length;
+    const end = input.current?.selectionEnd ?? start;
+    const prefix = value.slice(0, start);
+    const addition = prefix && !/\s$/.test(prefix) ? " @" : "@";
+    const nextCaret = start + addition.length;
+    onChange(prefix + addition + value.slice(end));
+    setCaret(nextCaret); setSelectionEmpty(true); setFocused(true); setDismissedMention(""); setSelected(0);
+    requestAnimationFrame(() => { input.current?.focus(); input.current?.setSelectionRange(nextCaret, nextCaret); });
+  } }));
+  function chooseAgent(agent: Agent) {
+    if (!mention) return;
+    const start = caret - mention[1].length - 1;
+    const end = caret + (value.slice(caret).match(/^[\p{L}\p{N}_.-]*/u)?.[0].length ?? 0);
+    const suffix = value.slice(end);
+    const replacement = `@${agent.id}${suffix.startsWith(" ") ? "" : " "}`;
+    onChange(value.slice(0, start) + replacement + suffix);
+    const nextCaret = start + agent.id.length + 2;
+    setCaret(nextCaret);
+    setSelected(0);
+    requestAnimationFrame(() => { input.current?.focus(); input.current?.setSelectionRange(nextCaret, nextCaret); });
+  }
   const matches =
     value.trim().startsWith("/") &&
     !/\s/.test(value.trim()) &&
@@ -48,7 +87,12 @@ export function CommandInput({
   }
   return (
     <>
-      {matches.length > 0 && (
+      {mentionOpen && <div className="slash-picker mention-picker" id="chat-mentions" role="listbox" aria-label="Mention an agent" ref={mentionList}>
+        <div className="mention-picker-heading">Agents in this room <span>↑ ↓ to browse · Enter to select</span></div>
+        {agentMatches.map((agent, index) => <button type="button" role="option" tabIndex={-1} id={`mention-${index}`} key={agent.id} aria-selected={activeAgent === index} onMouseDown={e=>e.preventDefault()} onClick={()=>chooseAgent(agent)}><Bot size={18}/><span><strong>{agent.name}</strong><small>@{agent.id}{agent.position ? ` · ${agent.position}` : ""}</small></span><kbd>↵</kbd></button>)}
+        {!agentMatches.length && <p className="mention-empty" role="status">No matching agents in this room.</p>}
+      </div>}
+      {!mentionOpen && matches.length > 0 && (
         <div
           className="slash-picker"
           id="chat-commands"
@@ -81,15 +125,36 @@ export function CommandInput({
         placeholder={placeholder}
         value={value}
         aria-autocomplete="list"
-        aria-controls={matches.length ? "chat-commands" : undefined}
-        aria-activedescendant={matches.length ? `command-${active}` : undefined}
+        aria-controls={mentionOpen ? "chat-mentions" : matches.length ? "chat-commands" : undefined}
+        aria-activedescendant={mentionOpen ? activeAgent >= 0 ? `mention-${activeAgent}` : undefined : matches.length ? `command-${active}` : undefined}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onSelect={e => { setCaret(e.currentTarget.selectionStart); setSelectionEmpty(e.currentTarget.selectionStart === e.currentTarget.selectionEnd); }}
         onChange={(e) => {
           onChange(e.target.value);
           setSelected(0);
           setDismissed(null);
+          setDismissedMention("");
+          setCaret(e.target.selectionStart);
+          setSelectionEmpty(e.target.selectionStart === e.target.selectionEnd);
         }}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return;
+          if (mentionOpen) {
+            if (e.key === "Escape") { e.preventDefault(); setDismissedMention(mentionKey); return; }
+            if (agentMatches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+              e.preventDefault();
+              const next = (activeAgent + (e.key === "ArrowDown" ? 1 : -1) + agentMatches.length) % agentMatches.length;
+              setSelected(next);
+              mentionList.current?.querySelectorAll('[role="option"]')[next]?.scrollIntoView({block:"nearest"});
+              return;
+            }
+            if ((e.key === "Enter" && !e.shiftKey) || (e.key === "Tab" && agentMatches.length)) {
+              e.preventDefault();
+              if (agentMatches.length) chooseAgent(agentMatches[activeAgent]);
+              return;
+            }
+          }
           if (matches.length) {
             if (e.key === "Escape") {
               e.preventDefault();
