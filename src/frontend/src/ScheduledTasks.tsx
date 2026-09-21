@@ -70,7 +70,7 @@ export function ScheduledTasks({
       <header className="schedule-header">
         <div>
           <h2>Scheduled tasks</h2>
-          <p>Send a message to your chat lead at the time you choose.</p>
+          <p>Schedule a message with an explicit @agent mention.</p>
         </div>
         <Button
           disabled={readOnly}
@@ -238,8 +238,7 @@ export function ScheduledTasks({
               {draft?.id ? "Edit scheduled task" : "New scheduled task"}
             </DialogTitle>
             <DialogDescription>
-              Your custom message goes to this group. Your chat lead can respond
-              or delegate.
+              Your message goes to this group. Mention the agents you want to run.
             </DialogDescription>
           </DialogHeader>
           {draft && (

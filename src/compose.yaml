@@ -1,0 +1,50 @@
+name: agentic-enterprise
+services:
+  platform:
+    build:
+      context: .
+      target: platform
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${AE_PORT:-18766}:8765"
+    environment:
+      AE_PUBLIC_URL: "${AE_PUBLIC_URL:-http://localhost:18766}"
+      AE_INTERNAL_URL: "http://platform:8765"
+      AE_MATRIX_HOMESERVER: "http://matrix:8008"
+      AE_MATRIX_BOT_USERNAME: "${AE_MATRIX_BOT_USERNAME:-agentic}"
+      AE_MATRIX_BOT_PASSWORD: "${AE_MATRIX_BOT_PASSWORD:?Set the Matrix bridge password}"
+    volumes:
+      - platform-data:/data
+    depends_on:
+      - matrix
+  matrix:
+    image: ghcr.io/element-hq/synapse:v1.161.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${AE_MATRIX_PORT:-18767}:8008"
+    environment:
+      SYNAPSE_SERVER_NAME: "${AE_MATRIX_SERVER_NAME:-agentic.local}"
+      SYNAPSE_REPORT_STATS: "no"
+    volumes:
+      - matrix-data:/data
+  worker:
+    profiles: [worker]
+    security_opt:
+      - seccomp=./vendor/docker-worker-seccomp.json
+    build:
+      context: .
+      target: worker
+    restart: unless-stopped
+    environment:
+      AE_CONTROLLER_URL: "http://platform:8765"
+      AE_ENROLLMENT_TOKEN: "${AE_ENROLLMENT_TOKEN:-}"
+    volumes:
+      - worker-data:/data
+      - worker-workdir:/workdir
+    depends_on:
+      - platform
+volumes:
+  platform-data:
+  matrix-data:
+  worker-data:
+  worker-workdir:

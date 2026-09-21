@@ -87,6 +87,8 @@ impl Store {
                 "groups",
                 "general",
                 &Group {
+                    member_ids: None,
+                    human_ids: None,
                     id: "general".into(),
                     name: "General".into(),
                     description: "Your team's shared workspace.".into(),

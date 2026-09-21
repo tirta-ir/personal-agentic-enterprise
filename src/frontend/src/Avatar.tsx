@@ -16,7 +16,7 @@ export function Avatar({
     >
       <span className="avatar-initials">
         {owner
-          ? "TI"
+          ? "U"
           : (agent?.name.slice(0, 2).toUpperCase() ?? <Bot size={16} />)}
       </span>
     </span>

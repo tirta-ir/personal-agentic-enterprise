@@ -152,7 +152,11 @@ mod tests {
             group_id: "general".into(),
             body: body.into(),
             side_chat_id: side.map(str::to_owned),
-            recipients: vec![],
+            recipients: if body == "/btw" || body.starts_with("/reset") {
+                vec![]
+            } else {
+                vec!["ceo".into()]
+            },
             reply_to: None,
             artifacts: vec![],
         };
@@ -288,7 +292,11 @@ mod tests {
             group_id: group.into(),
             body: body.into(),
             side_chat_id: None,
-            recipients: vec![],
+            recipients: if body == "/btw" || body.starts_with("/reset") {
+                vec![]
+            } else {
+                vec!["ceo".into()]
+            },
             reply_to: None,
             artifacts: vec![],
         };
@@ -347,6 +355,8 @@ mod tests {
         worker.reports_to = Some(ceo.id.clone());
         db.put("agents", &worker.id, &worker)?;
         let group = Group {
+            member_ids: None,
+            human_ids: None,
             project: None,
             scope_levels: None,
             chat_lead_id: None,
@@ -362,7 +372,11 @@ mod tests {
             group_id: group.into(),
             side_chat_id: None,
             body: body.into(),
-            recipients: vec![],
+            recipients: if body == "/btw" || body.starts_with("/reset") {
+                vec![]
+            } else {
+                vec!["ceo".into()]
+            },
             reply_to: None,
             artifacts: vec![],
         };

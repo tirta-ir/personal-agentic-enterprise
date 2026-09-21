@@ -12,6 +12,9 @@ pub fn id() -> String {
 #[ts(export)]
 pub struct Workspace {
     #[serde(default)]
+    #[ts(optional)]
+    pub runtime_id: Option<String>,
+    #[serde(default)]
     pub ssh_host: Option<String>,
     pub path: String,
     pub canonical_path: String,
@@ -71,6 +74,13 @@ pub struct Group {
     pub id: String,
     pub name: String,
     pub description: String,
+    // Explicit invited agents. Ancestors are included; unrelated branches are not.
+    #[serde(default)]
+    #[ts(optional)]
+    pub member_ids: Option<Vec<String>>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub human_ids: Option<Vec<String>>,
     #[serde(default)]
     pub project: Option<Project>,
     #[serde(default)]
@@ -276,6 +286,9 @@ pub struct GroupPreferences {
 
 impl Workspace {
     pub fn identity(&self) -> String {
+        if let Some(id) = &self.runtime_id {
+            return format!("runtime://{id}/{}", self.canonical_path);
+        }
         match &self.ssh_host {
             Some(host) => format!("ssh://{host}{}", self.canonical_path),
             None => self.canonical_path.clone(),

@@ -1,5 +1,7 @@
 # Agentic Enterprise
 
+The decentralized workspace implementation adds authenticated tenants, registered outbound workers, explicit human/agent groups, and Matrix rooms. Start with [deployment and one-line installation](DEPLOYMENT.md) and the [real-service verification record](VERIFICATION-DECENTRALIZED-2026-09-21.md). The local/SSH instructions below describe the retained bootstrap-owner mode; new workspaces use registered runtimes.
+
 ## Projects, actions and collaboration
 
 - Use **+ → Create project** beside Groups. Choose a name and a local or saved remote workdir. Creation leaves the team empty and opens **Structure** immediately. Add organization agents or create dedicated project agents and set reporting lines there; the create/edit project dialog no longer edits the team. Projects use a folder icon and `/projects/<name--id>/...` URLs. Chat, Knowledge, Runs and independent side conversations use the existing group machinery.

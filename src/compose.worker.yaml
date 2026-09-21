@@ -1,0 +1,20 @@
+name: agentic-worker
+services:
+  worker:
+    build:
+      context: .
+      target: worker
+    restart: unless-stopped
+    security_opt:
+      - seccomp=./vendor/docker-worker-seccomp.json
+    environment:
+      AE_CONTROLLER_URL: "${AE_CONTROLLER_URL:?Set the existing platform URL}"
+      AE_ENROLLMENT_TOKEN: "${AE_ENROLLMENT_TOKEN:-}"
+    volumes:
+      - worker-data:/data
+      - ${AE_WORKDIR:-worker-workdir}:/workdir
+      - ${AE_CODEX_HOME:-worker-codex}:/home/agent/.codex
+volumes:
+  worker-data:
+  worker-workdir:
+  worker-codex:

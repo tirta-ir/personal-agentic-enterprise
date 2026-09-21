@@ -1,0 +1,133 @@
+# Decentralized platform verification — 21 September 2026
+
+The previous local development was merged and pushed to GitHub `main` as
+`7e54de0dbc107a822790314388b42427050122d1` before this feature branch started.
+The feature implementation is on `codex/decentralized-workspaces`.
+
+## Implemented behavior
+
+| Request | Delivered path |
+| --- | --- |
+| Multiplatform setup | Source installers for Windows, Debian/Ubuntu and macOS; Docker controller/worker images and Compose; native startup service scripts |
+| Persistent registered workers | One-use enrollment, workspace-bound tokens, outbound polling, durable claims and result acknowledgments, cancellation, saved native sessions |
+| Runtime workdir | Worker-local canonical root validation; named Docker volume or selected host bind mount |
+| Workspaces and organizations | Create, list, rename, soft-delete and restore; separate organization SQLite stores; authenticated owners and members |
+| Sharing groups | Explicit human and agent membership; manager/team selection with excluded branches; reporting ancestors included; project structure remains customizable |
+| Human/agent chat | Ordinary messages do not start agents; explicit complete mentions and the working @ picker select participants |
+| Matrix | Actual matrix-rust-sdk login, private rooms, membership reconciliation, event ingestion and idempotent outgoing messages |
+| Authentication | Matrix password login, expiring hashed opaque sessions, HttpOnly/SameSite cookies, logout revocation, tenant/group checks, separate worker and run capabilities |
+
+```mermaid
+flowchart LR
+    H[Human browser] -->|Authenticated workspace API| P[Platform controller]
+    M[Native Matrix client] <--> S[Matrix homeserver]
+    S <--> SDK[matrix-rust-sdk bridge]
+    SDK <--> P
+    P --> DB[(Separate organization stores)]
+    W[Registered worker] -->|Outbound claims and acknowledged results| P
+    W --> CLI[Native Codex or OpenCode]
+    CLI --> D[Worker workdir / selected host mount]
+    CLI -->|Run-scoped MCP capability| P
+```
+
+The control plane remains a single Rust process. Execution is distributed to registered
+workers. Original bootstrap-owner local/SSH behavior remains available for migration;
+new workspaces require registered workers. No parallel scheduler was introduced.
+
+## Evidence
+
+- `cargo test --locked --bin agentic-enterprise --no-fail-fast`: **62 passed**, zero failed/ignored.
+- `cargo build --locked`: native Windows binary built.
+- `npm run lint`: passed without warnings on the final frontend.
+- `npm run build`: passed; existing large-chunk advisory remains.
+- `git diff --check`: passed.
+- PowerShell AST parse and macOS `bash -n`: installer syntax passed.
+- Docker Linux ARM64 platform and worker images built on `mac-personal` using Rust 1.94 and Node 22.
+- Real Synapse v1.161.0, SQLite and native Codex 0.155.1 were used. No API, authentication, database, worker or model mocks.
+
+### Windows native end-to-end
+
+`verify-decentralized.py` exercised actual HTTP and Matrix APIs and a registered Windows worker:
+
+- Unauthenticated and invalid-login requests: **401**.
+- Workspace CRUD and independent organization initialization: passed.
+- Cross-tenant access: **403**; controller catalog access from another workspace: **400**.
+- Allowed human room access: **200**; excluded human access: **403**.
+- Selecting one child included its parent and excluded the sibling; excluded agent dispatch: **400**.
+- Ordinary human room post: **zero new runs**.
+- Enrollment reuse, runtime-token access to human APIs, revoked runtime token: **401**.
+- Logout invalidated the saved browser session.
+- Worker paths outside its registered root: **400**.
+- Native Matrix text imported once, and the platform human post reached Matrix.
+- A human Matrix client could not bypass group access by inviting an excluded user: **403**.
+- Controller-native catalog/credential access was denied from another workspace; the registered-worker connection probe passed.
+- Real worker run `18c98506-f4cf-4d9a-8a0a-f6c08638d3b7` returned `DECENTRALIZED_SMOKE_OK`.
+- Native session: `01a0c4b0-b5d9-7a60-8ff0-95419456458c`; worker process PID **18072**.
+
+`verify-workspace-ui.mjs` used a real Edge browser: login, @ picker inserting `@ceo`,
+workspace creation and navigation all passed, with **zero page errors**. The same browser
+check against the Mac Docker deployment also selected a team while excluding its sibling,
+then registered and revoked a runtime through the actual UI. Screenshots
+were inspected in the ignored verification directory.
+
+### mac-personal Docker deployment
+
+Isolated Compose project: `ae-decentralized-test`.
+Directory: `/Users/punya-tirta/ae-decentralized-test`.
+Platform: `http://localhost:18766`; Matrix: `http://localhost:18767` on the Mac.
+Persistent controller, Matrix and worker volumes are retained. The worker mounts only
+the dedicated test workdir and a dedicated native credential directory.
+
+- The real HTTP/Matrix/worker suite passed on Linux ARM64 inside Docker.
+- Runtime registration: `4f70cb79-c03b-4544-8dce-b4336aec87a2`.
+- Worker run `fd64c31f-3f63-4a5c-90eb-314848bccb75`: `DECENTRALIZED_SMOKE_OK`.
+- Worker and controller restart caused **no command replay**.
+- Subsequent run `cc9d0406-08a6-479d-a1bd-773be47fc447` resumed native session
+  `01a0c4b2-3d6b-76c1-ac17-2931c3e32f05` and wrote `HOST_MOUNT_OK` to the actual Mac file
+  `/Users/punya-tirta/ae-decentralized-test/workdir/bind-proof-56f42e3fb22a4292b60f2d3a32eedf6c.txt`.
+- Cancellation run `bd477084-88c7-4dd0-8988-80f9571bcb67`: **cancelled**; the owned `sleep 90`
+  process was absent from `docker compose top worker`, and its completion file was absent.
+- Codex workspace-write remained enabled. Docker's default seccomp policy initially blocked
+  bubblewrap; a pinned Moby profile with the required unprivileged namespace/mount syscalls
+  fixed real tool execution without privileged mode or a full-access permission override.
+
+A final repeat exposed a heartbeat/exit race: a closed stdin pipe could override a valid
+completion receipt. The shared harness now reconciles the receipt after draining output,
+while preserving explicit cancellation and timeout status. The final Docker smoke,
+restart/resume, host-write and cancellation suites all passed after this correction.
+
+### Standalone Docker runtime
+
+A second Compose project, `ae-decentralized-runtime`, was started using
+`compose.worker.yaml`. It contains only a worker, connects to the existing platform,
+and uses a separate host workdir. Its runtime `729f4531-0dc7-45b6-8c17-039f2343cb81` completed run
+`38ad9fc2-8169-45be-899e-aea414ff70d8` with `STANDALONE_WORKER_OK` and wrote the actual host file
+`/Users/punya-tirta/ae-decentralized-test/standalone-workdir/standalone-proof.txt`. No second controller or Matrix server was started.
+Both Docker workers remain registered and running for inspection.
+
+## Reproduce
+
+See `scripts/verify-decentralized.py --help`, `scripts/verify-worker-recovery.py --help`
+and `scripts/verify-workspace-ui.mjs` for the runnable real-service checks. Their credentials
+come from private fixture files, not committed source. See [DEPLOYMENT.md](DEPLOYMENT.md)
+for installation and registration instructions.
+
+## Practical limits
+
+- Native clean-machine installation was not run on all three OS families. Windows native
+  execution and Linux ARM64 Docker execution on the Mac were exercised. Installers require
+  the documented build prerequisites; there are no signed binary releases yet.
+- Matrix bridges main-room text. Side chats and attachments remain platform-local. Rooms
+  are not end-to-end encrypted, and the trusted bridge labels messages rather than
+  impersonating each human/agent as a separate Matrix account.
+- Identity uses Matrix password login; SSO/OIDC and password-reset UI are not implemented.
+  Workspace members have scoped room access; administration remains owner-only.
+- This is one controller with SQLite organization stores, not a highly available controller cluster.
+- Managed service/container restart preserves registration and native sessions. It interrupts
+  active work; it does not migrate or automatically replay commands. Unmanaged Unix SIGKILL
+  cannot guarantee cleanup of descendants.
+- Provider and model catalog availability still comes from each worker's installed, signed-in
+  native CLI. The new registered-worker end-to-end tests used Codex; OpenCode uses the same
+  transport adapter but was not live-tested through this transport.
+- Worker outboxes and controller run evidence currently require operator retention management
+  for long-running deployments.

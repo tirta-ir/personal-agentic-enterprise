@@ -58,6 +58,7 @@ import { ArchivedGroups } from "./ArchivedGroups";
 import { ChatActivity, MessageModelBadge } from "./ChatActivity";
 import { isActiveRun } from "./runStatus";
 import { ProjectTeam } from "./ProjectTeam";
+import { RuntimeSelect } from "./RuntimeSettings";
 import { WorkstationSelect } from "./WorkstationSelect";
 import { UserSettings } from "./UserSettings";
 import type { Workstation } from "./bindings/Workstation";
@@ -133,7 +134,7 @@ function chatMessagesPath(groupId: string, side: string | null, before?: string)
   if (before) query.set("before", before);
   return `/groups/${groupId}/messages?${query}`;
 }
-export default function App() {
+export default function App({role = "owner", controllerAccess = true, user = "owner", workspaceName = "My workspace"}: {role?: string; controllerAccess?: boolean; user?: string; workspaceName?: string}) {
   const [data, setData] = useState<StateView | null>(null);
   const [catalog, setCatalog] = useState<CodexSettings | null>(null);
   const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 767px)").matches);
@@ -239,7 +240,7 @@ export default function App() {
         },
         (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
       ),
-    [],
+    [setError],
   );
   const refresh = useCallback(async () => {
     const response = await api<StateView>("/state");
@@ -255,11 +256,11 @@ export default function App() {
       setMessages(next);
       setMessagesScope(`${id}:${side ?? "main"}`);
     }
-  }, []);
+  }, [setMessages, setMessagesScope]);
   useEffect(() => {
-    if (!authenticated) return;
+    if (!authenticated || !controllerAccess) return;
     void perform(async () => setCatalog(await api<CodexSettings>("/codex/settings")), false);
-  }, [authenticated, catalogRevision, perform]);
+  }, [authenticated, catalogRevision, perform, controllerAccess]);
   useEffect(() => {
     void perform(async () => {
       const fragment = new URLSearchParams(location.hash.slice(1)).get("key");
@@ -291,6 +292,7 @@ export default function App() {
   }, [authenticated, data, routeError, route, groupId, selectedAgent]);
   useEffect(() => {
     if (!authenticated) return;
+    if (role !== "owner") { const poll = setInterval(() => {setConnected(true);void perform(refresh, false);}, 2000); return () => clearInterval(poll); }
     let timer: ReturnType<typeof setTimeout> | null = null;
     const source = new EventSource(`/api/events?after=${cursor.current}`);
     source.onopen = () => setConnected(true);
@@ -306,7 +308,7 @@ export default function App() {
       source.close();
       if (timer) clearTimeout(timer);
     };
-  }, [authenticated, perform, refresh]);
+  }, [authenticated, perform, refresh, role]);
   useEffect(() => {
     if (authenticated) void perform(refresh);
   }, [groupId, sideChatId, authenticated, perform, refresh]);
@@ -326,10 +328,10 @@ export default function App() {
   const allAgents = [...organizationAgents, ...(data?.deleted_agents ?? [])];
   const groupAccess = data?.group_access?.[groupId];
   const participants = organizationAgents.filter((agent) => !groupAccess || groupAccess.participant_ids.includes(agent.id));
-  const chatLead = participants.find((a) => a.id === (groupAccess ? groupAccess.chat_lead_id : data?.chat_lead_id));
+  const [mentionOpen, setMentionOpen] = useState(false);
   const mentionedAgents = /@all\b/i.test(draft)
     ? participants.filter((a) => a.enabled)
-    : organizationAgents.filter((a) =>
+    : participants.filter((a) =>
         draft.toLowerCase().includes(`@${a.name.toLowerCase()}`) || draft.includes(`@${a.id}`),
       );
   const running =
@@ -347,7 +349,7 @@ export default function App() {
         group_id: groupId,
         body: draft,
         side_chat_id: sideChatId,
-        recipients: /^\/(?:reset|usage)(?:\s|$)/.test(draft.trim()) ? [] : mentionedAgents.map((a) => a.id),
+        recipients: [], // The server resolves complete mentions and enforces room membership.
         reply_to: reply?.id ?? null,
         artifacts: attachments,
       };
@@ -460,7 +462,7 @@ export default function App() {
               <img className="brand-mark" src="/agentic-enterprise-logo.png" alt="Agentic Enterprise logo" width={44} height={44} />
               <div>
                 <strong>Agentic Enterprise</strong>
-                <span>Personal workspace</span>
+                <span>{workspaceName}</span>
               </div>
             </div>
             <button
@@ -475,7 +477,7 @@ export default function App() {
                 preferences={data.group_preferences}
                 selected={["Organization", "Action board"].includes(tab) ? null : groupId}
                 running={data.runs.filter(active).map((r) => r.group_id)}
-                onCreate={() => setGroupEditor({ id: "", name: "", description: "", project:null, scope_levels: null, chat_lead_id: null, archived_at: null, deleted_at: null })}
+                onCreate={() => setGroupEditor({ id: "", name: "", description: "", member_ids: [], human_ids: [], project:null, scope_levels: null, chat_lead_id: null, archived_at: null, deleted_at: null })}
                 onCreateProject={() => setGroupEditor({ id:"", name:"", description:"", project:{workdir:{path:"",canonical_path:"",git_root:null,ssh_host:null},members:[]},scope_levels:null,chat_lead_id:null,archived_at:null,deleted_at:null })}
                 onSave={async (preferences) => {
                   await put("/preferences/groups", preferences);
@@ -505,7 +507,7 @@ export default function App() {
               <div className="owner-row">
                 <Avatar owner />
                 <button className="owner-settings" aria-label="User settings" title="User settings" onClick={() => go({ view: "User settings", agentId: null, runId: null })}>
-                  <strong>Tirta Irawan</strong>
+                  <strong>{user}</strong>
                   <small>Settings</small>
                 </button>
                 <button
@@ -520,7 +522,7 @@ export default function App() {
                   onClick={() =>
                     void perform(async () => {
                       await post("/logout");
-                      setAuthenticated(false);
+                      location.reload();
                     })
                   }
                 >
@@ -633,7 +635,7 @@ export default function App() {
                             <li key={a.id}>
                               <Avatar agent={a} />
                               <div><strong>{a.name}</strong><span>{a.position || a.role}</span></div>
-                              {!a.enabled ? <Badge variant="outline">Paused</Badge> : a.id === chatLead?.id && <Badge variant="secondary">Chat lead</Badge>}
+                              {!a.enabled ? <Badge variant="outline">Paused</Badge> : null}
                             </li>
                           ))}
                         </ul>
@@ -785,7 +787,7 @@ export default function App() {
                       ) : (
                         <Avatar
                           agent={allAgents.find((a) => a.id === m.sender)}
-                          owner={m.sender === "owner"}
+                          owner={m.sender === "owner" || m.sender.startsWith("@")}
                         />
                       )}
                       <div className="message-content">
@@ -794,7 +796,7 @@ export default function App() {
                             {m.sender === "system"
                               ? "Agentic Enterprise"
                               : m.sender === "owner"
-                                ? "Tirta Irawan"
+                                ? "Workspace owner"
                                 : (allAgents.find((a) => a.id === m.sender)
                                     ?.name ?? m.sender)}
                           </strong>
@@ -867,7 +869,7 @@ export default function App() {
                             <Check size={13} /> View execution evidence
                           </button>
                         )}
-                        {m.sender === "owner" &&
+                        {(m.sender === "owner" || m.sender.startsWith("@")) &&
                           data?.runs
                             .filter((r) => r.message_id === m.id)
                             .map((r) => (
@@ -960,6 +962,7 @@ export default function App() {
                     </div>
                   )}
                   <div className="composer">
+                    {mentionOpen && <div className="slash-picker" role="dialog" aria-label="Mention an agent">{participants.filter(a=>a.enabled).map(a=><button key={a.id} onClick={()=>{setDraft(v=>`${v}${v&&!v.endsWith(" ")?" ":""}@${a.id} `);setMentionOpen(false);queueMicrotask(()=>document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus());}}>{a.name} · {a.position}</button>)}<button onClick={()=>setMentionOpen(false)}>Close</button></div>}
                     <CommandInput
                       key={`${groupId}:${sideChatId ?? "main"}`}
                       value={draft}
@@ -987,6 +990,7 @@ export default function App() {
                       </div>
                     )}
                     <div className="composer-footer">
+                      <button aria-label="Mention an agent" aria-expanded={mentionOpen} onClick={()=>setMentionOpen(v=>!v)}> @ </button>
                       <button
                         aria-label="Attach file"
                         onClick={() => uploadRef.current?.click()}
@@ -1000,9 +1004,7 @@ export default function App() {
                             : draft.trim().startsWith("/btw") ? "Opens an independent side chat with main-chat context. Add a question to start work." : "Chat commands run directly in your workspace."
                           : mentionedAgents.length > 0
                             ? `Sending to ${mentionedAgents.map((a) => a.name).join(", ")}.`
-                            : chatLead
-                              ? `${chatLead.name} will handle your message and delegate when needed.`
-                              : "Choose an enabled chat lead within this group's scope in Manage group."}
+                            : "Room message · mention an agent to start work."}
                       </span>
                       <Button
                         aria-label="Send message"
@@ -1093,12 +1095,11 @@ export default function App() {
               />
             )}
             {(tab === "Action board" || tab === "Actions") && data && <ActionBoard key={tab === "Actions" ? groupId : "organization"} data={data} groupId={tab === "Actions" ? groupId : undefined} onRefresh={refresh} onOpenRun={(groupId,runId)=>go({groupId,view:"Runs",runId,agentId:null})}/>}
-            {tab === "User settings" && <UserSettings workstations={data?.workstations ?? []} onRefresh={refresh}/>}
+            {tab === "User settings" && <UserSettings controllerAccess={controllerAccess} workstations={data?.workstations ?? []} onRefresh={refresh}/>}
             {tab === "Structure" && group?.project && data && <div className="project-structure-view">{projectTeamOpen && <ProjectTeam key={`${group.id}:${JSON.stringify(group.project.members)}`} group={group} agents={data.agents} onSaved={refresh} onClose={() => setProjectTeamOpen(false)} onAdd={() => { setNewAgentProject(groupId); setNewAgent(true); }}/>}<Suspense fallback={<div className="empty-state">Opening project structure…</div>}><OrganizationChart key={groupId} workstations={data.workstations ?? []}
               projectName={group.name} layoutPath={`/organization/layout?group_id=${encodeURIComponent(groupId)}`}
               agents={data.agents.filter(a=>group.project!.members.some(m=>m.agent_id===a.id)).map(a=>({...a,reports_to:group.project!.members.find(m=>m.agent_id===a.id)?.manager_id??null,workdir:group.project!.workdir}))}
-              connections={Object.fromEntries(group.project.members.map(m=>[m.agent_id,data.project_connections?.[groupId]]))} savedLayout={data.project_layouts?.[groupId]??{}} chatLeadId={data.group_access[groupId]?.chat_lead_id??null}
-              onChatLeadChange={id=>void perform(async()=>{await post("/groups",{...group,chat_lead_id:id});await refresh();})}
+              connections={Object.fromEntries(group.project.members.map(m=>[m.agent_id,data.project_connections?.[groupId]]))} savedLayout={data.project_layouts?.[groupId]??{}}
               onDeletedAgents={()=>setProjectTeamOpen(true)} selected={selectedAgent} onSelect={id => go({ agentId: id, section: "Profile", runId: null })}
               onAdd={()=>{setNewAgentProject(groupId);setNewAgent(true);}}/></Suspense></div>}
             {tab === "Organization" && (
@@ -1112,13 +1113,6 @@ export default function App() {
                   agents={(data?.agents ?? []).map(a=>a.project_id?{...a,workdir:data?.groups.find(g=>g.id===a.project_id)?.project?.workdir??a.workdir}:a)}
                   connections={data?.connections ?? {}}
                   savedLayout={data?.organization_layout ?? {}}
-                  chatLeadId={data?.chat_lead_id ?? null}
-                  onChatLeadChange={(agent_id) =>
-                    void perform(async () => {
-                      await put("/organization/chat-lead", { agent_id });
-                      await refresh();
-                    })
-                  }
                   onDeletedAgents={() => setDeletedAgentsOpen(true)}
                   selected={selectedAgent}
                   onSelect={(id) => {
@@ -1148,6 +1142,7 @@ export default function App() {
               groupName={group?.name ?? "this group"} readOnly={groupClosed} />}
             {agent && !preview && (
               <AgentInspector
+                controllerAccess={controllerAccess}
                 key={`${agent.id}-${agent.revision}`}
                 agent={agent}
                 workstations={data?.workstations ?? []}
@@ -1332,7 +1327,7 @@ export default function App() {
           </form>
         </DialogContent>
       </Dialog>
-      {groupEditor && <GroupDialog key={`${groupEditor.id}:${groupEditor.archived_at}:${groupEditor.deleted_at}`}
+      {groupEditor && <GroupDialog controllerAccess={controllerAccess} key={`${groupEditor.id}:${groupEditor.archived_at}:${groupEditor.deleted_at}`}
         group={data?.groups.find((g) => g.id === groupEditor.id) ?? groupEditor}
         agents={organizationAgents}
         workstations={data?.workstations ?? []}
@@ -1569,6 +1564,7 @@ function OrganizationRelationships({
 }
 
 function AgentInspector({
+  controllerAccess,
   workstations,
   connection,
   agent,
@@ -1582,6 +1578,7 @@ function AgentInspector({
   perform,
 }: {
   connection?: Connection;
+  controllerAccess: boolean;
   workstations: Workstation[];
   agent: Agent;
   agents: Agent[];
@@ -1609,6 +1606,7 @@ function AgentInspector({
   const effectiveAgent = projectWorkdir ? {...agent,workdir:projectWorkdir} : agent;
   const [path, setPath] = useState(agent.workdir?.path ?? "");
   const [sshHost, setSshHost] = useState(agent.workdir?.ssh_host ?? "");
+  const [runtimeId, setRuntimeId] = useState(agent.workdir?.runtime_id ?? "");
   const remote = Boolean(sshHost);
   const [probe, setProbe] = useState("");
   const [filePath, setFilePath] = useState("");
@@ -1637,12 +1635,12 @@ function AgentInspector({
   const modelsRequest = useRef(0);
   const loadModels = useCallback(() => {
     const request = ++modelsRequest.current;
-    return api<CodexSettings>(`/harness/settings?harness=${edited.harness}&agent_id=${encodeURIComponent(agent.id)}${catalogHost ? `&ssh_host=${encodeURIComponent(catalogHost)}` : ""}`).then(settings => {
+    return api<CodexSettings>(`/harness/settings?harness=${edited.harness}&agent_id=${encodeURIComponent(agent.id)}${runtimeId ? `&runtime_id=${encodeURIComponent(runtimeId)}` : catalogHost ? `&ssh_host=${encodeURIComponent(catalogHost)}` : ""}`).then(settings => {
       if (request === modelsRequest.current) { setModels(settings); setModelError(""); }
     }, (error: unknown) => {
       if (request === modelsRequest.current) setModelError(error instanceof Error ? error.message : String(error));
     });
-  }, [catalogHost, edited.harness, agent.id]);
+  }, [catalogHost, runtimeId, edited.harness, agent.id]);
   useEffect(() => {
     if (section !== "Profile") return;
     let request = modelsRequest.current;
@@ -1932,9 +1930,10 @@ function AgentInspector({
               this folder’s .env file when they start. Edit the file in your
               codebase; changes apply to the next execution.
             </p>
-            <WorkstationSelect id="workstation-host" value={sshHost} workstations={workstations} onChange={host => { setSshHost(host); setPath(""); setProbe(""); }}/>
+            <RuntimeSelect value={runtimeId} onChange={id=>{setRuntimeId(id);setSshHost("");setPath("");setProbe("");}}/>
+            {controllerAccess && !runtimeId && <WorkstationSelect id="workstation-host" value={sshHost} workstations={workstations} onChange={host => { setSshHost(host); setPath(""); setProbe(""); }}/> }
             <Label htmlFor="workdir-path">Absolute directory path</Label>
-            <Button variant="outline" disabled={remote && !sshHost.trim()} onClick={() => setFolderPicker(true)}>
+            <Button variant="outline" disabled={!controllerAccess || !!runtimeId || (remote && !sshHost.trim())} onClick={() => setFolderPicker(true)}>
               <FolderOpen size={16} />
               Browse folders
             </Button>
@@ -1951,7 +1950,7 @@ function AgentInspector({
                   const result = await post<{
                     workspace: Workspace;
                     git_status: string;
-                  }>("/workspaces/probe", { path, ssh_host: remote ? sshHost.trim() : null });
+                  }>("/workspaces/probe", { path, runtime_id: runtimeId || null, ssh_host: remote ? sshHost.trim() : null });
                   setEdited({ ...edited, workdir: result.workspace });
                   setProbe(result.git_status);
                 })
@@ -1989,9 +1988,9 @@ function AgentInspector({
                 void perform(async () => {
                   const result = await post<{ workspace: Workspace }>(
                     "/workspaces/probe",
-                    { path, ssh_host: remote ? sshHost.trim() : null },
+                    { path, runtime_id: runtimeId || null, ssh_host: remote ? sshHost.trim() : null },
                   );
-                  const changedHost = (result.workspace.ssh_host ?? null) !== (agent.workdir?.ssh_host ?? null);
+                  const changedHost = (result.workspace.ssh_host ?? null) !== (agent.workdir?.ssh_host ?? null) || result.workspace.runtime_id !== agent.workdir?.runtime_id;
                   await save({ ...edited, workdir: result.workspace, ...(changedHost ? {model:"", reasoning:""} : {}) });
                 })
               }

@@ -2,6 +2,8 @@
 
 A personal agent workspace with group and project chats, organization reporting lines, scoped delegation, an action board, knowledge, and local or remote workdirs. A native Rust backend serves a React/TypeScript frontend using shadcn UI and runs agents through Codex CLI or OpenCode.
 
+The decentralized workspace development adds Matrix sign-in and room transport, workspace isolation, explicit room membership, and persistent registered workers. See [installation and deployment](src/DEPLOYMENT.md) for Windows, Linux, macOS, Docker and the worker recovery contract.
+
 ## Layout
 
 - `src/` — platform code, migrations, build scripts, tests, and upstream licenses.

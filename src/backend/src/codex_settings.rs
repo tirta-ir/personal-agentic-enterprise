@@ -28,7 +28,7 @@ struct Cache {
     fetched_at: Option<String>,
 }
 
-#[derive(Serialize, TS)]
+#[derive(Deserialize, Serialize, TS)]
 #[ts(export)]
 pub struct CodexSettings {
     pub model: String,

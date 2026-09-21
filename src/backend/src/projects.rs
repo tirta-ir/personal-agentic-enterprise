@@ -65,8 +65,12 @@ pub fn level(project: &Project, id: &str) -> Result<u32> {
     Ok(u32::try_from(seen.len())?)
 }
 
-pub fn validate_workdir(group: &mut Group, org: &std::path::Path) -> Result<()> {
+pub fn validate_workdir(group: &mut Group, app: &crate::App) -> Result<()> {
     if let Some(project) = &mut group.project {
+        if project.workdir.runtime_id.is_some() {
+            project.workdir = crate::fleet::validate(app, &project.workdir)?;
+            return Ok(());
+        }
         project.workdir = match &project.workdir.ssh_host {
             Some(host) => crate::remote::validate_workspace(host, &project.workdir.path)?,
             None => security::validate_workspace(&project.workdir.path)?,
@@ -74,7 +78,7 @@ pub fn validate_workdir(group: &mut Group, org: &std::path::Path) -> Result<()> 
         ensure!(
             project.workdir.ssh_host.is_some()
                 || !std::path::Path::new(&project.workdir.canonical_path)
-                    .starts_with(org.join(".state")),
+                    .starts_with(app.store.org.join(".state")),
             "Runtime state cannot be a project workdir"
         );
     }

@@ -75,7 +75,7 @@ function PersonCard({ id, data, selected }: NodeProps<PersonNode>) {
     updateNodeInternals(id);
   }, [id, reports, updateNodeInternals]);
   const owner = !agent;
-  const name = agent?.name ?? "Tirta Irawan";
+  const name = agent?.name ?? "Workspace owner";
   const workdir = agent?.workdir?.path
     .replace(/\\/g, "/")
     .split("/")
@@ -109,7 +109,7 @@ function PersonCard({ id, data, selected }: NodeProps<PersonNode>) {
         <div className="org-card-identity">
           <strong title={name}>{name}</strong>
           <span>
-            {owner ? "Tirta's workspace" : agent.position || "Position not set"}
+            {owner ? "Workspace organization" : agent.position || "Position not set"}
             {agent && !agent.enabled ? " · Paused" : ""}
           </span>
         </div>
@@ -167,7 +167,7 @@ function PersonCard({ id, data, selected }: NodeProps<PersonNode>) {
         className={`org-card ${owner ? "org-card-owner" : ""} ${selected ? "is-selected" : ""} ${agent && !agent.enabled ? "is-paused" : ""}`}
         data-agent-id={agent?.id}
         data-selected={selected}
-        aria-label={owner ? "Tirta Irawan, organization owner" : undefined}
+        aria-label={owner ? "Workspace owner" : undefined}
       >
         {content}
       </div>
@@ -224,7 +224,7 @@ function chartLayout(agents: Agent[], dimensions: ChartLayout = {}) {
     type: "smoothstep",
     selectable: false,
     focusable: false,
-    ariaLabel: `${agent.name} reports to ${agents.find((a) => a.id === agent.reports_to)?.name ?? "Tirta Irawan"}`,
+    ariaLabel: `${agent.name} reports to ${agents.find((a) => a.id === agent.reports_to)?.name ?? "Workspace owner"}`,
     pathOptions: { borderRadius: 12 },
   }));
   for (const node of nodes) {
@@ -263,8 +263,6 @@ export function OrganizationChart({
   agents,
   savedLayout,
   connections,
-  chatLeadId,
-  onChatLeadChange,
   onDeletedAgents,
   selected,
   onSelect,
@@ -279,8 +277,6 @@ export function OrganizationChart({
   agents: Agent[];
   savedLayout: ChartLayout;
   connections: Partial<Record<string, Connection>>;
-  chatLeadId: string | null;
-  onChatLeadChange: (id: string) => void;
   onDeletedAgents: () => void;
   selected: string | null;
   onSelect: (id: string) => void;
@@ -361,26 +357,6 @@ export function OrganizationChart({
           </Button>
         </div>
       </header>
-      <label className="organization-chat-lead">
-        Chat lead
-        <select
-          aria-label="Chat lead"
-          value={chatLeadId ?? ""}
-          onChange={(event) => onChatLeadChange(event.target.value)}
-        >
-          <option value="" disabled>
-            Choose your direct report
-          </option>
-          {agents
-            .filter((agent) => agent.enabled && (projectName || (!agent.project_id && !agent.reports_to)))
-            .map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-              </option>
-            ))}
-        </select>
-        <span>Handles your group messages.</span>
-      </label>
       <div className="org-canvas-frame">
         <div className="org-chart-toolbar">
           <button

@@ -1,0 +1,9 @@
+target
+frontend/node_modules
+frontend/dist
+.env
+**/.env
+**/*.log
+tools
+.git
+backups

@@ -64,7 +64,6 @@ pub fn router(app: App, frontend: PathBuf) -> Router {
         .route("/api/agents", post(save_agent))
         .route("/api/agents/{id}", put(update_agent).delete(delete_agent))
         .route("/api/agents/{id}/restore", post(restore_agent))
-        .route("/api/organization/chat-lead", put(save_chat_lead))
         .route("/api/agents/{id}/revisions", get(revisions))
         .route(
             "/api/agents/{id}/organization-context",
@@ -142,6 +141,7 @@ async fn codex_catalog(Query(query): Query<FileQuery>) -> ApiResult<codex_settin
 }
 #[derive(Deserialize)]
 struct HarnessQuery {
+    runtime_id: Option<String>,
     #[serde(default)]
     harness: Harness,
     ssh_host: Option<String>,
@@ -153,6 +153,9 @@ async fn harness_catalog(
 ) -> ApiResult<codex_settings::CodexSettings> {
     Ok(Json(
         tokio::task::spawn_blocking(move || -> Result<_> {
+            if let Some(id) = query.runtime_id.filter(|id| !id.is_empty()) {
+                return crate::fleet::settings(&app, &id, query.harness);
+            }
             let workspace = if let Some(id) = query.agent_id {
                 let agent: Agent = app.store.get("agents", &id)?;
                 app.store
@@ -162,6 +165,7 @@ async fn harness_catalog(
                     .ssh_host
                     .filter(|h| !h.is_empty())
                     .map(|ssh_host| Workspace {
+                        runtime_id: None,
                         ssh_host: Some(ssh_host),
                         path: String::new(),
                         canonical_path: String::new(),
@@ -245,7 +249,7 @@ async fn state(State(app): State<App>) -> ApiResult<StateView> {
     let mut runs = app.store.list::<Run>("runs")?;
     runs.reverse();
     runs.truncate(100);
-    Ok(Json(StateView {
+    let mut view = StateView {
         workstations: crate::workstations::list(&app.store)?,
         questions: crate::questions::recent(&app)?,
         actions: app.store.list("action_items")?,
@@ -346,7 +350,36 @@ async fn state(State(app): State<App>) -> ApiResult<StateView> {
                 .transpose()?
                 .unwrap_or_default())
         })?,
-    }))
+    };
+    view.groups.retain(|g| crate::platform::can_read(&app, g));
+    let groups: std::collections::HashSet<_> = view.groups.iter().map(|g| g.id.clone()).collect();
+    view.group_access.retain(|id, _| groups.contains(id));
+    view.project_connections.retain(|id, _| groups.contains(id));
+    view.project_layouts.retain(|id, _| groups.contains(id));
+    view.runs.retain(|r| groups.contains(&r.group_id));
+    view.schedules.retain(|r| groups.contains(&r.group_id));
+    view.actions.retain(|r| groups.contains(&r.group_id));
+    view.questions.retain(|r| groups.contains(&r.group_id));
+    view.artifacts.retain(|r| groups.contains(&r.group_id));
+    view.group_preferences
+        .pinned
+        .retain(|id| groups.contains(id));
+    view.group_preferences
+        .order
+        .retain(|id| groups.contains(id));
+    for section in &mut view.group_preferences.sections {
+        section.groups.retain(|id| groups.contains(id));
+    }
+    if app.identity.as_ref().is_some_and(|i| i.role != "owner") {
+        view.workstations.clear();
+        view.deleted_agents.clear();
+        view.connections.clear();
+        view.org_path.clear();
+        view.codex_path.clear();
+        view.agents
+            .retain(|a| a.project_id.as_ref().is_none_or(|id| groups.contains(id)));
+    }
+    Ok(Json(view))
 }
 #[derive(Deserialize)]
 struct LayoutQuery {
@@ -407,19 +440,32 @@ fn validate_agent(app: &App, agent: &mut Agent) -> Result<()> {
     let effective_workspace = app
         .store
         .read(|conn| crate::projects::workspace(conn, agent))?;
-    crate::opencode::settings_for(app, agent.harness, effective_workspace.as_ref())?
-        .resolve(&agent.model, &agent.reasoning)?;
+    if effective_workspace.is_some() {
+        crate::opencode::settings_for(app, agent.harness, effective_workspace.as_ref())?
+            .resolve(&agent.model, &agent.reasoning)?;
+    }
     ensure!(
         (10..=14400).contains(&agent.timeout_seconds),
         "Timeout must be 10–14400 seconds"
     );
     if let Some(w) = &agent.workdir {
-        let validated = match &w.ssh_host {
-            Some(host) => crate::remote::validate_workspace(host, &w.path)?,
-            None => security::validate_workspace(&w.path)?,
+        ensure!(
+            (app.workspace_id == "default"
+                && app.identity.as_ref().is_none_or(|i| i.user == "owner"))
+                || w.runtime_id.is_some(),
+            "Register a runtime for this workspace; controller filesystem access requires the bootstrap owner"
+        );
+        let validated = if w.runtime_id.is_some() {
+            crate::fleet::validate(app, w)?
+        } else {
+            match &w.ssh_host {
+                Some(host) => crate::remote::validate_workspace(host, &w.path)?,
+                None => security::validate_workspace(&w.path)?,
+            }
         };
         ensure!(
-            validated.ssh_host.is_some()
+            validated.runtime_id.is_some()
+                || validated.ssh_host.is_some()
                 || !std::path::Path::new(&validated.canonical_path)
                     .starts_with(app.store.org.join(".state")),
             "Runtime state cannot be attached as a codebase"
@@ -626,20 +672,6 @@ async fn restore_agent(State(app): State<App>, Path(id): Path<String>) -> ApiRes
     app.store.materialize(&agent)?;
     Ok(Json(agent))
 }
-#[derive(Deserialize)]
-struct ChatLead {
-    agent_id: String,
-}
-async fn save_chat_lead(State(app): State<App>, Json(input): Json<ChatLead>) -> ApiResult<Value> {
-    app.store.write(|conn| {
-        let agent: Agent = store::get(conn,"agents",&input.agent_id)?;
-        ensure!(agent.deleted_at.is_none() && agent.enabled && agent.reports_to.is_none() && agent.project_id.is_none(), "Choose an enabled organization agent who reports directly to you");
-        conn.execute("INSERT INTO metadata(key,value) VALUES('chat_lead_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [&agent.id])?;
-        store::event(conn,"organization.chat_lead_saved",&json!({"agent_id":agent.id}))?;
-        Ok(())
-    })?;
-    Ok(Json(json!({"agent_id":input.agent_id})))
-}
 async fn revisions(State(app): State<App>, Path(id): Path<String>) -> ApiResult<Vec<Agent>> {
     Ok(Json(app.store.read(|c| {
         let mut q =
@@ -661,8 +693,36 @@ struct WorkspaceInput {
     path: String,
     #[serde(default)]
     ssh_host: Option<String>,
+    #[serde(default)]
+    runtime_id: Option<String>,
 }
-async fn workspace_probe(Json(input): Json<WorkspaceInput>) -> ApiResult<Value> {
+async fn workspace_probe(
+    State(app): State<App>,
+    Json(input): Json<WorkspaceInput>,
+) -> ApiResult<Value> {
+    if input.runtime_id.is_some() {
+        let workspace = tokio::task::spawn_blocking(move || {
+            crate::fleet::validate(
+                &app,
+                &Workspace {
+                    runtime_id: input.runtime_id,
+                    ssh_host: None,
+                    path: input.path,
+                    canonical_path: String::new(),
+                    git_root: None,
+                },
+            )
+        })
+        .await
+        .map_err(anyhow::Error::from)??;
+        return Ok(Json(
+            json!({"workspace":workspace,"git_status":"Workdir verified by the registered runtime"}),
+        ));
+    }
+    ensure!(
+        (app.workspace_id == "default" && app.identity.as_ref().is_none_or(|i| i.user == "owner")),
+        "Select a registered runtime"
+    );
     if let Some(host) = input.ssh_host.filter(|s| !s.is_empty()) {
         return Ok(Json(tokio::task::spawn_blocking(move || -> Result<Value> {
             let workspace = crate::remote::validate_workspace(&host, &input.path)?;
@@ -905,6 +965,14 @@ async fn save_group_preferences(
     Ok(Json(preferences))
 }
 async fn save_group(State(app): State<App>, Json(mut group): Json<Group>) -> ApiResult<Group> {
+    if let Some(project) = &group.project {
+        ensure!(
+            (app.workspace_id == "default"
+                && app.identity.as_ref().is_none_or(|i| i.user == "owner"))
+                || project.workdir.runtime_id.is_some(),
+            "Projects require a registered runtime"
+        );
+    }
     if group.id.is_empty() {
         group.id = id();
     }
@@ -915,7 +983,7 @@ async fn save_group(State(app): State<App>, Json(mut group): Json<Group>) -> Api
     );
     let validation_app = app.clone();
     group = tokio::task::spawn_blocking(move || -> Result<Group> {
-        crate::projects::validate_workdir(&mut group, &validation_app.store.org)?;
+        crate::projects::validate_workdir(&mut group, &validation_app)?;
         Ok(group)
     })
     .await
@@ -931,9 +999,9 @@ async fn save_group(State(app): State<App>, Json(mut group): Json<Group>) -> Api
             let old = serde_json::from_str::<Group>(&old)?;
             old.ensure_active()?;
             ensure!(old.project.is_some() == group.project.is_some(), "Create a separate project or group to change its type");
-            if old.scope_levels != group.scope_levels || old.chat_lead_id != group.chat_lead_id || serde_json::to_value(&old.project)? != serde_json::to_value(&group.project)? {
+            if old.member_ids != group.member_ids || old.human_ids != group.human_ids || old.scope_levels != group.scope_levels || old.chat_lead_id != group.chat_lead_id || serde_json::to_value(&old.project)? != serde_json::to_value(&group.project)? {
                 ensure!(!store::list::<Run>(tx, "runs")?.iter().any(|run| run.group_id == group.id && coordination::active(run)),
-                    "Stop or wait for this group's active runs before changing its scope or chat lead");
+                    "Stop or wait for this group's active runs before changing its membership or structure");
                 // Do not carry a formerly public chat session into a delegation-only role.
                 tx.execute("UPDATE sessions SET active=0 WHERE group_id=?", [&group.id])?;
             }
@@ -1114,7 +1182,27 @@ async fn send_message(State(app): State<App>, Json(input): Json<SendInput>) -> A
     if crate::chat_commands::parse(&input.body)?.is_some_and(|command| command != "btw") {
         return Ok(Json(crate::chat_commands::send(&app, input).await?));
     }
-    let message = app.store.write(|tx| submit_message(tx, input, None))?;
+    let message = app.store.write(|tx| {
+        if let Some(identity) = &app.identity {
+            let old: Option<String> = tx
+                .query_row(
+                    "SELECT json_extract(data,'$.sender') FROM messages WHERE id=?",
+                    [&input.id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            ensure!(
+                old.as_ref().is_none_or(|sender| sender == &identity.user),
+                "Message ID belongs to another sender"
+            );
+        }
+        let mut message = submit_message(tx, input, None)?;
+        if let Some(identity) = &app.identity {
+            message.sender = identity.user.clone();
+            store::put(tx, "messages", &message.id, &message)?;
+        }
+        Ok(message)
+    })?;
     app.wake.notify_one();
     Ok(Json(message))
 }
@@ -1169,6 +1257,14 @@ pub(crate) fn submit_message(
     mut input: SendInput,
     schedule_id: Option<String>,
 ) -> Result<Message> {
+    if input.recipients.is_empty() {
+        let group: Group = store::get(tx, "groups", &input.group_id)?;
+        input.recipients = crate::group_scope::mentions(tx, &group, &input.body)?;
+    }
+    ensure!(
+        schedule_id.is_none() || !input.recipients.is_empty(),
+        "Scheduled work must mention an invited agent explicitly"
+    );
     validate_message_input(&mut input)?;
     let starts_side =
         schedule_id.is_none() && crate::chat_commands::parse(&input.body)? == Some("btw");
@@ -1214,20 +1310,9 @@ pub(crate) fn submit_message(
             "Attachment not available to this group"
         );
     }
-    let auto_routed = !empty_side && input.recipients.is_empty();
-    let recipients = if empty_side {
-        vec![]
-    } else if auto_routed {
-        vec![
-            crate::group_scope::access(tx, &group)?
-                .chat_lead_id
-                .context(
-                    "Choose an enabled chat lead within this group's scope and attach its workdir",
-                )?,
-        ]
-    } else {
-        input.recipients.clone()
-    };
+    // A room message only invokes explicitly addressed agents.
+    let auto_routed = false;
+    let recipients = input.recipients.clone();
     let message = Message {
         id: input.id.clone(),
         group_id: group.id.clone(),

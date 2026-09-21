@@ -1,3 +1,4 @@
+import { RuntimeSettings } from "./RuntimeSettings";
 import { useState } from "react";
 import { Monitor, Plus, Server, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,7 @@ import type { Workstation } from "./bindings/Workstation";
 import type { Connection } from "./bindings/Connection";
 
 const empty: Workstation = { id: "", name: "", hostname: "", host_ip: "", port: 22, username: "", auth: "key", ssh_alias: "", ssh_key_path: "", secret_saved: false };
-export function UserSettings({ workstations, onRefresh }: { workstations: Workstation[]; onRefresh: () => Promise<void> }) {
+export function UserSettings({ controllerAccess, workstations, onRefresh }: { controllerAccess: boolean; workstations: Workstation[]; onRefresh: () => Promise<void> }) {
   const [draft, setDraft] = useState<Workstation | null>(null);
   const [secret, setSecret] = useState("");
   const [clearSecret, setClearSecret] = useState(false);
@@ -26,7 +27,9 @@ export function UserSettings({ workstations, onRefresh }: { workstations: Workst
     try { await work(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   }
+  if (!controllerAccess) return <section className="user-settings"><RuntimeSettings/></section>;
   return <section className="user-settings">
+    <RuntimeSettings/>
     <header><div><h1>User settings</h1><p>Save workstations once, then choose them in an agent or project.</p></div><Button onClick={() => edit(empty)}><Plus size={16}/>Add workstation</Button></header>
     <div className="workstation-settings-layout"><nav aria-label="Saved workstations">
       <div className="workstation-local"><Monitor size={18}/><span><strong>Local</strong><small>This machine</small></span></div>
