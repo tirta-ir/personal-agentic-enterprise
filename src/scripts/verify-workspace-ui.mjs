@@ -13,8 +13,8 @@ const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try {
   await page.goto(url);
   await page.getByRole('button',{name:'Sign in',exact:true}).waitFor();
-  const bootstrap=page.getByLabel('Use bootstrap owner key');
-  if(await bootstrap.isVisible())await bootstrap.check();
+  const administrator=page.getByRole('button',{name:'Administrator sign in',exact:true});
+  if(await administrator.isVisible())await administrator.click();
   await page.getByLabel('Owner key',{exact:true}).fill((await readFile(keyFile,'utf8')).trim());
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   const mention=page.getByRole('button',{name:'Mention an agent',exact:true});

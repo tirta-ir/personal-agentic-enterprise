@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { api, post, put, ApiFailure } from "./api";
 import App from "./App";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { ArrowRight, Eye, EyeOff, LoaderCircle } from "lucide-react";
 type Tenant = { id: string; name: string; deleted: boolean; role: string };
 type Person = { user: string; role: string };
 export function WorkspaceGate() {
@@ -12,6 +15,7 @@ export function WorkspaceGate() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [owner, setOwner] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState("");
   const [manage, setManage] = useState(false);
   const [people, setPeople] = useState<Person[]>([]);
@@ -33,14 +37,29 @@ export function WorkspaceGate() {
     await refresh();
   } catch(e) { if (!(e instanceof ApiFailure && e.status === 401)) setError(e instanceof Error ? e.message : String(e)); } finally {setReady(true);} })(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if(manage && workspace?.role === "owner") void api<Person[]>(`/tenants/${selected}/members`).then(setPeople,e=>setError(String(e))); }, [manage, selected, workspace?.role]);
-  if(!ready) return <main className="login-page">Connecting…</main>;
-  if(!user) return <main className="login-page"><form className="login-card" onSubmit={e=>{e.preventDefault();void act(async()=>{await post("/login", matrix&&!owner ? {username,password}:{token:password});setPassword("");await refresh();});}}>
-    <h1>Agentic Enterprise</h1><p>Sign in to your workspaces.</p>
-    {matrix && <label><input type="checkbox" checked={owner} onChange={e=>setOwner(e.target.checked)}/>Use bootstrap owner key</label>}
-    {matrix&&!owner&&<label>Matrix username<input required autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)}/></label>}
-    <label>{matrix&&!owner?"Password":"Owner key"}<input required type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)}/></label>
-    <button type="submit" disabled={busy}>Sign in</button>{error&&<p role="alert">{error}</p>}
-  </form></main>;
+  if(!ready) return <main className="login-page"><p className="login-loading" role="status"><LoaderCircle className="animate-spin" aria-hidden="true" size={20}/>Connecting to your workspace…</p></main>;
+  if(!user) return <main className="login-page"><section className="login-card" aria-labelledby="login-title">
+    <div className="login-brand"><img src="/agentic-enterprise-logo.png" alt="" width={36} height={36}/><span>Agentic Enterprise</span></div>
+    <h1 id="login-title">{owner||!matrix ? "Administrator sign in" : "Welcome back"}</h1>
+    <p>{owner||!matrix ? "Use your owner key to manage this platform." : "Sign in to your workspace. Your team and agents are here."}</p>
+    <form aria-label="Sign in" aria-busy={busy} onSubmit={e=>{e.preventDefault();void act(async()=>{
+      try { await post("/login", matrix&&!owner ? {username:username.trim(),password}:{token:password.trim()}); }
+      catch(e) {
+        if(e instanceof ApiFailure && e.status===401) throw new Error(matrix&&!owner ? "The username or password is incorrect. Please try again." : "That owner key is not valid. Check your key and try again.");
+        throw e;
+      }
+      setPassword("");setShowPassword(false);await refresh();
+    });}}>
+      <fieldset disabled={busy}>
+        {matrix&&!owner&&<div className="login-field"><label htmlFor="login-username">Username</label><Input id="login-username" name="username" required autoComplete="username" autoCapitalize="none" spellCheck={false} aria-describedby="login-account-help" value={username} onChange={e=>setUsername(e.target.value)}/><p id="login-account-help" className="login-hint">Use the Matrix account provided by your workspace administrator.</p></div>}
+        <div className="login-field"><label htmlFor="login-password">{matrix&&!owner?"Password":"Owner key"}</label><div className="login-secret"><Input id="login-password" name="password" required type={showPassword?"text":"password"} autoComplete={matrix&&!owner?"current-password":"off"} value={password} onChange={e=>setPassword(e.target.value)}/><Button type="button" variant="ghost" className="login-reveal" aria-label={showPassword?"Hide password":"Show password"} aria-pressed={showPassword} onClick={()=>setShowPassword(v=>!v)}>{showPassword?<EyeOff aria-hidden="true"/>:<Eye aria-hidden="true"/>}</Button></div></div>
+        {error&&<p className="login-error" role="alert">{error}</p>}
+        <Button type="submit" className="login-submit" disabled={busy}>{busy?<><LoaderCircle className="animate-spin" aria-hidden="true"/>Signing in…</>:<>Sign in<ArrowRight aria-hidden="true"/></>}</Button>
+      </fieldset>
+    </form>
+    <p className="login-help">{owner||!matrix ? "Your deployment administrator can provide the owner key." : "Need access or help signing in? Contact your workspace administrator."}</p>
+    {matrix&&<div className="login-alternate"><Button type="button" variant="link" disabled={busy} onClick={()=>{setOwner(v=>!v);setPassword("");setShowPassword(false);setError("");}}>{owner?"Back to account sign in":"Administrator sign in"}</Button></div>}
+  </section></main>;
   return <div style={{height:"100vh",display:"flex",flexDirection:"column"}}>
     <div style={{padding:"8px 16px",display:"flex",gap:12,alignItems:"center",borderBottom:"1px solid #ddd"}}>
       <label>Workspace <select aria-label="Workspace" value={workspace?.id??""} onChange={e=>choose(e.target.value)}><option value="" disabled>Select workspace</option>{tenants.filter(t=>!t.deleted).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>

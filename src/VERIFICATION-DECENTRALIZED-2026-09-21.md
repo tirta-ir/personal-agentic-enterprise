@@ -118,6 +118,23 @@ script retrieval and Git access through the per-command GitHub credential helper
 were verified without changing global Git credentials. Bash syntax and PowerShell
 AST parsing passed; this does not replace clean-machine installation testing.
 
+## Sign-in UI correction
+
+The first login implementation used bare controls under Tailwind's reset and put
+the `login-card` class on the form, although the existing CSS expected a nested
+form. The result was invisible field boundaries and collapsed label spacing.
+The corrected entry screen uses the existing Input/Button components, explicit
+labels, a separate administrator sign-in option, password visibility, submission
+feedback and actionable credential errors. No authentication rules were relaxed.
+
+`node src/scripts/verify-login-ui.mjs http://localhost:18766 <private-owner-key-file> <output-directory>`
+passed against the rebuilt Mac Docker platform: widths 320, 375, 705 and 1440;
+bordered fields and 44px controls; no horizontal overflow; incorrect credentials;
+password visibility; cleared secrets when changing sign-in method; real owner
+login and logout; zero page errors. Desktop and mobile screenshots were visually
+inspected. `npm run lint`, `npm run build` and `git diff --check` passed.
+The existing workspace UI check now uses the administrator sign-in button.
+
 ## Practical limits
 
 - Native clean-machine installation was not run on all three OS families. Windows native
