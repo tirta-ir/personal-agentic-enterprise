@@ -13,31 +13,33 @@ Linux x64/ARM64, Apple Silicon and Windows x64 include ONNX Runtime for knowledg
 indexing. Intel macOS workers run natively; controller knowledge indexing needs a
 manually supplied ONNX 1.24.4 library or Docker because upstream has no Intel Mac binary.
 Use `AE_REF` to select a reviewed branch, commit or tag. The commands below install
-this development branch. Switch both the raw URL and `AE_REF` to a release or `main`
-after the changes are merged.
+this development branch. Switch both the API `ref` and `AE_REF` to a release or `main`
+after the changes are merged. This repository is private: install the GitHub CLI and
+sign in with `gh auth login` using an account with repository access before running
+these commands. The installers use that login without changing global Git credentials.
 
 Windows (PowerShell, Git, Node 22+, Rust 1.94+, Visual Studio C++ Build Tools):
 
 ```powershell
-$env:AE_REF='codex/decentralized-workspaces'; irm https://raw.githubusercontent.com/tirta-ir/personal-agentic-enterprise/codex/decentralized-workspaces/src/install.ps1 | iex
+$env:AE_REF='codex/decentralized-workspaces'; gh api -H 'Accept: application/vnd.github.raw' 'repos/tirta-ir/personal-agentic-enterprise/contents/src/install.ps1?ref=codex/decentralized-workspaces' | Out-String | iex
 ```
 
 Linux (Debian/Ubuntu; sudo for native build dependencies):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/tirta-ir/personal-agentic-enterprise/codex/decentralized-workspaces/src/install.sh | AE_REF=codex/decentralized-workspaces bash
+gh api -H 'Accept: application/vnd.github.raw' 'repos/tirta-ir/personal-agentic-enterprise/contents/src/install.sh?ref=codex/decentralized-workspaces' | AE_REF=codex/decentralized-workspaces bash
 ```
 
 macOS (Homebrew and Xcode command line tools):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/tirta-ir/personal-agentic-enterprise/codex/decentralized-workspaces/src/install.sh | AE_REF=codex/decentralized-workspaces bash
+gh api -H 'Accept: application/vnd.github.raw' 'repos/tirta-ir/personal-agentic-enterprise/contents/src/install.sh?ref=codex/decentralized-workspaces' | AE_REF=codex/decentralized-workspaces bash
 ```
 
 Docker (Docker Compose, Git, OpenSSL):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/tirta-ir/personal-agentic-enterprise/codex/decentralized-workspaces/src/install-docker.sh | AE_REF=codex/decentralized-workspaces bash
+gh api -H 'Accept: application/vnd.github.raw' 'repos/tirta-ir/personal-agentic-enterprise/contents/src/install-docker.sh?ref=codex/decentralized-workspaces' | AE_REF=codex/decentralized-workspaces bash
 ```
 
 The Docker installer provisions Synapse, a private bridge identity and the platform.

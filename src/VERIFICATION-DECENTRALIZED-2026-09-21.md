@@ -112,6 +112,12 @@ and `scripts/verify-workspace-ui.mjs` for the runnable real-service checks. Thei
 come from private fixture files, not committed source. See [DEPLOYMENT.md](DEPLOYMENT.md)
 for installation and registration instructions.
 
+The repository is private. The documented one-liners retrieve scripts through an
+authenticated GitHub CLI session; unauthenticated raw URLs return 404. Authenticated
+script retrieval and Git access through the per-command GitHub credential helper
+were verified without changing global Git credentials. Bash syntax and PowerShell
+AST parsing passed; this does not replace clean-machine installation testing.
+
 ## Practical limits
 
 - Native clean-machine installation was not run on all three OS families. Windows native

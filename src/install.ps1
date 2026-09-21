@@ -2,21 +2,21 @@
 param([string]$Ref = $(if ($env:AE_REF) { $env:AE_REF } else { 'main' }))
 $ErrorActionPreference = 'Stop'
 $installRoot = if ($env:AE_INSTALL_DIR) { $env:AE_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'AgenticEnterprise' }
-foreach ($tool in @('git','cargo','node','npm.cmd','cl.exe')) {
+foreach ($tool in @('gh','git','cargo','node','npm.cmd','cl.exe')) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
         if ($tool -eq 'cl.exe' -and (Test-Path "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe")) { continue }
-        throw "Install Git, Node 22+, Rust 1.94+ and Visual Studio C++ Build Tools, then rerun. Missing: $tool"
+        throw "Install authenticated GitHub CLI, Git, Node 22+, Rust 1.94+ and Visual Studio C++ Build Tools, then rerun. Missing: $tool"
     }
 }
 if (-not (Test-Path -LiteralPath (Join-Path $installRoot '.git'))) {
-    git clone https://github.com/tirta-ir/personal-agentic-enterprise.git $installRoot
+    git -c credential.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' clone https://github.com/tirta-ir/personal-agentic-enterprise.git $installRoot
     if ($LASTEXITCODE) { throw 'Clone failed.' }
 }
 git -C $installRoot diff --quiet
 if ($LASTEXITCODE) { throw 'Installation checkout has local changes. Preserve them before updating.' }
 git -C $installRoot diff --cached --quiet
 if ($LASTEXITCODE) { throw 'Installation checkout has staged changes. Preserve them before updating.' }
-git -C $installRoot fetch origin $Ref
+git -C $installRoot -c credential.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' fetch origin $Ref
 if ($LASTEXITCODE) { throw 'Fetch failed.' }
 git -C $installRoot checkout --detach FETCH_HEAD
 if ($LASTEXITCODE) { throw 'Checkout failed.' }

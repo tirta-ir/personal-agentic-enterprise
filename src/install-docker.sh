@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
+command -v gh >/dev/null || { echo 'Install GitHub CLI and sign in with gh auth login for this private repository.' >&2; exit 1; }
 command -v docker >/dev/null
 docker compose version >/dev/null
 install_root="${AE_INSTALL_DIR:-$HOME/agentic-enterprise-docker}"
-if [ ! -d "$install_root/.git" ]; then git clone https://github.com/tirta-ir/personal-agentic-enterprise.git "$install_root"; fi
+if [ ! -d "$install_root/.git" ]; then git -c credential.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' clone https://github.com/tirta-ir/personal-agentic-enterprise.git "$install_root"; fi
 git -C "$install_root" diff --quiet && git -C "$install_root" diff --cached --quiet || { echo 'Preserve local checkout changes before updating.' >&2; exit 1; }
-git -C "$install_root" fetch origin "${AE_REF:-main}"
+git -C "$install_root" -c credential.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' fetch origin "${AE_REF:-main}"
 git -C "$install_root" checkout --detach FETCH_HEAD
 cd "$install_root/src"
 if [ -n "${AE_CONTROLLER_URL:-}" ]; then
