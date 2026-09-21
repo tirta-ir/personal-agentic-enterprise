@@ -3,7 +3,9 @@ import { api, post, put, ApiFailure } from "./api";
 import App from "./App";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
-import { ArrowRight, Eye, EyeOff, LoaderCircle } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, LoaderCircle, Settings2, Plus, Users, Building2, ArrowLeft } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./components/ui/dialog";
+import "./platform-settings.css";
 type Tenant = { id: string; name: string; deleted: boolean; role: string };
 type Person = { user: string; role: string };
 export function WorkspaceGate() {
@@ -60,23 +62,37 @@ export function WorkspaceGate() {
     <p className="login-help">{owner||!matrix ? "Your deployment administrator can provide the owner key." : "Need access or help signing in? Contact your workspace administrator."}</p>
     {matrix&&<div className="login-alternate"><Button type="button" variant="link" disabled={busy} onClick={()=>{setOwner(v=>!v);setPassword("");setShowPassword(false);setError("");}}>{owner?"Back to account sign in":"Administrator sign in"}</Button></div>}
   </section></main>;
-  return <div style={{height:"100vh",display:"flex",flexDirection:"column"}}>
-    <div style={{padding:"8px 16px",display:"flex",gap:12,alignItems:"center",borderBottom:"1px solid #ddd"}}>
-      <label>Workspace <select aria-label="Workspace" value={workspace?.id??""} onChange={e=>choose(e.target.value)}><option value="" disabled>Select workspace</option>{tenants.filter(t=>!t.deleted).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
-      <button onClick={()=>setManage(v=>!v)}>Manage workspaces</button><span style={{marginLeft:"auto"}}>{user}</span>
-      <button onClick={()=>void act(async()=>{await post("/logout");location.reload();})}>Sign out</button>
-    </div>
-    {error&&<p role="alert" className="banner error">{error}</p>}
-    {(manage||!workspace)&&<section style={{padding:16,overflow:"auto"}} aria-label="Workspace settings">
-      <form onSubmit={e=>{e.preventDefault();void act(async()=>{const t=await post<Tenant>("/tenants",{name});setName("");choose(t.id);await refresh();choose(t.id);});}}><label>New workspace <input required maxLength={80} value={name} onChange={e=>setName(e.target.value)}/></label><button disabled={busy}>Create workspace</button></form>
-      {workspace?.role==="owner"&&<>
-        <form onSubmit={e=>{e.preventDefault();const form=new FormData(e.currentTarget);void act(async()=>{await put(`/tenants/${selected}`,{name:form.get("name")});await refresh();});}}><label>Name <input name="name" defaultValue={workspace.name} key={workspace.id+workspace.name} required maxLength={80}/></label><button disabled={busy}>Rename</button></form>
-        <h3>People in this workspace</h3>{people.map(p=><div key={p.user}>{p.user} · {p.role} {p.role==="member"&&<button onClick={()=>void act(async()=>setPeople(await api<Person[]>(`/tenants/${selected}/members`,{method:"DELETE",body:JSON.stringify({user:p.user})})))}>Remove</button>}</div>)}
-        <form onSubmit={e=>{e.preventDefault();void act(async()=>{setPeople(await post<Person[]>(`/tenants/${selected}/members`,{user:invite}));setInvite("");});}}><label>Invite Matrix user <input value={invite} onChange={e=>setInvite(e.target.value)} placeholder="@person:server" required/></label><button disabled={busy}>Invite</button></form>
-        <button onClick={()=>void act(async()=>{if(!confirm(`Delete ${workspace.name}? History will be retained for restoration.`))return;await api(`/tenants/${selected}`,{method:"DELETE",body:"{}"});await refresh();})}>Delete workspace</button>
-      </>}
-      {tenants.filter(t=>t.deleted).map(t=><div key={t.id}>{t.name} (deleted) <button onClick={()=>void act(async()=>{await put(`/tenants/${t.id}`,{deleted:false});await refresh();})}>Restore</button></div>)}
-    </section>}
-    {workspace&&<div style={{flex:1,minHeight:0,overflow:"hidden"}}><App key={selected} user={user} workspaceName={workspace.name} role={workspace.role} controllerAccess={user==="owner"&&selected==="default"}/></div>}
+  return <div className="platform-shell">
+    <header className="workspace-bar">
+      <Building2 size={18} aria-hidden="true"/>
+      <label className="workspace-switcher"><span>Workspace</span><select aria-label="Workspace" value={workspace?.id??""} onChange={e=>choose(e.target.value)}><option value="" disabled>Select workspace</option>{tenants.filter(t=>!t.deleted).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+      {workspace&&<span className="settings-badge">{workspace.role === "owner" ? "Owner" : "Member"}</span>}
+      <Button variant="ghost" className="workspace-manage" aria-label="Manage workspaces" onClick={()=>setManage(true)}><Settings2 size={16}/><span>Manage workspaces</span></Button>
+    </header>
+    {error&&!manage&&<p role="alert" className="banner error">{error}</p>}
+    <Dialog open={manage||!workspace} onOpenChange={setManage}>
+      <DialogContent className="workspace-dialog">
+        <DialogHeader><DialogTitle>Workspaces</DialogTitle><DialogDescription>Each workspace has its own people, agents, and conversations.</DialogDescription></DialogHeader>
+        {error&&<p role="alert" className="banner error">{error}</p>}
+        <section className="settings-card">
+          <div className="settings-section-title"><Plus size={18}/><h2>Create a workspace</h2></div>
+          <form className="settings-inline-form" onSubmit={e=>{e.preventDefault();void act(async()=>{const t=await post<Tenant>("/tenants",{name:name.trim()});setName("");await refresh();choose(t.id);});}}><label htmlFor="new-workspace">New workspace<Input id="new-workspace" required maxLength={80} placeholder="e.g. Engineering" value={name} onChange={e=>setName(e.target.value)}/></label><Button type="submit" disabled={busy||!name.trim()}>Create workspace</Button></form>
+        </section>
+        {workspace&&<section className="settings-card">
+          <div className="settings-section-title"><Building2 size={18}/><h2>{workspace.name}</h2><span className="settings-badge">{workspace.role}</span></div>
+          {workspace.role==="owner"?<>
+            <form className="settings-inline-form" onSubmit={e=>{e.preventDefault();const form=new FormData(e.currentTarget);void act(async()=>{await put(`/tenants/${selected}`,{name:form.get("name")});await refresh();});}}><label htmlFor="workspace-name">Name<Input id="workspace-name" name="name" defaultValue={workspace.name} key={workspace.id+workspace.name} required maxLength={80}/></label><Button type="submit" variant="outline" disabled={busy}>Rename</Button></form>
+            <div className="settings-section-title"><Users size={18}/><h3>People</h3></div>
+            <div className="settings-people">{people.map(p=><div className="settings-person" key={p.user}><span className="settings-avatar" aria-hidden="true">{p.user.replace(/^@/, "").slice(0,1).toUpperCase()}</span><strong>{p.user}</strong><span className="settings-badge">{p.role}</span>{p.role==="member"&&<Button variant="ghost" disabled={busy} onClick={()=>void act(async()=>setPeople(await api<Person[]>(`/tenants/${selected}/members`,{method:"DELETE",body:JSON.stringify({user:p.user})})))}>Remove</Button>}</div>)}</div>
+            <form className="settings-inline-form" onSubmit={e=>{e.preventDefault();void act(async()=>{setPeople(await post<Person[]>(`/tenants/${selected}/members`,{user:invite.trim()}));setInvite("");});}}><label htmlFor="workspace-invite">Invite Matrix user<Input id="workspace-invite" value={invite} onChange={e=>setInvite(e.target.value)} placeholder="@person:server" required/></label><Button type="submit" variant="outline" disabled={busy||!invite.trim()}>Invite</Button></form>
+            <details className="workspace-danger"><summary>Delete workspace</summary><p>History is retained. You can restore this workspace later.</p><Button variant="destructive" disabled={busy} onClick={()=>void act(async()=>{if(!confirm(`Delete ${workspace.name}? History will be retained for restoration.`))return;await api(`/tenants/${selected}`,{method:"DELETE",body:"{}"});await refresh();})}>Delete workspace</Button></details>
+          </>:<p className="settings-description">You are a member of this workspace. Its owner manages invitations, agents, and connected machines.</p>}
+        </section>}
+        {tenants.filter(t=>t.deleted).length>0&&<section className="settings-card"><h2>Deleted workspaces</h2>{tenants.filter(t=>t.deleted).map(t=><div className="settings-person" key={t.id}><strong>{t.name}</strong>{t.role==="owner"&&<Button variant="outline" disabled={busy} onClick={()=>void act(async()=>{await put(`/tenants/${t.id}`,{deleted:false});await refresh();})}>Restore</Button>}</div>)}</section>}
+        {!workspace&&<Button variant="ghost" onClick={()=>void act(async()=>{await post("/logout");location.reload();})}>Sign out</Button>}
+        {workspace&&<Button variant="ghost" onClick={()=>setManage(false)}><ArrowLeft size={16}/>Back to workspace</Button>}
+      </DialogContent>
+    </Dialog>
+    {workspace&&<div className="platform-content"><App key={selected} user={user} workspaceName={workspace.name} role={workspace.role} controllerAccess={user==="owner"&&selected==="default"}/></div>}
   </div>;
 }

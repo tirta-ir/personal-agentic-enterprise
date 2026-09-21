@@ -270,6 +270,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
       }
       try {
         await refresh();
+        setConnected(true);
         setAuthenticated(true);
       } catch (e) {
         if (e instanceof ApiFailure && e.status === 401)
@@ -292,7 +293,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
   }, [authenticated, data, routeError, route, groupId, selectedAgent]);
   useEffect(() => {
     if (!authenticated) return;
-    if (role !== "owner") { const poll = setInterval(() => {setConnected(true);void perform(refresh, false);}, 2000); return () => clearInterval(poll); }
+    if (role !== "owner") { const poll = setInterval(() => {void refresh().then(()=>setConnected(true), (e: unknown)=>{setConnected(false);setError(e instanceof Error?e.message:String(e));});}, 2000); return () => clearInterval(poll); }
     let timer: ReturnType<typeof setTimeout> | null = null;
     const source = new EventSource(`/api/events?after=${cursor.current}`);
     source.onopen = () => setConnected(true);
@@ -465,14 +466,15 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                 <span>{workspaceName}</span>
               </div>
             </div>
-            <button
+            {role === "owner" && <button
               className="search-button"
               onClick={() => setSearchOpen(true)}
             >
               <Search size={16} /> Search your workspace <kbd>⌕</kbd>
-            </button>
+            </button>}
             {data && (
               <GroupList
+                readOnly={role !== "owner"}
                 groups={data.groups}
                 preferences={data.group_preferences}
                 selected={["Organization", "Action board"].includes(tab) ? null : groupId}
@@ -491,7 +493,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
               />
             )}
             <div className="sidebar-bottom">
-              <nav className="sidebar-shortcuts" aria-label="Workspace settings">
+              {role === "owner" && <nav className="sidebar-shortcuts" aria-label="Workspace settings">
                 <button className={`organization-button ${tab === "Action board" ? "selected" : ""}`} onClick={() => go({view:"Action board",agentId:null,runId:null})}><ListChecks size={18}/><span>Action board</span><ChevronRight size={15}/></button>
                 <button
                   className={`organization-button ${tab === "Organization" ? "selected" : ""}`}
@@ -503,20 +505,20 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                   <span>Organization</span>
                   <ChevronRight size={15} />
                 </button>
-              </nav>
+              </nav>}
               <div className="owner-row">
                 <Avatar owner />
                 <button className="owner-settings" aria-label="User settings" title="User settings" onClick={() => go({ view: "User settings", agentId: null, runId: null })}>
                   <strong>{user}</strong>
                   <small>Settings</small>
                 </button>
-                <button
+                {role === "owner" && <button
                   aria-label="Archived groups"
                   title="Archived groups"
                   onClick={() => setArchiveOpen(true)}
                 >
                   <Archive size={17} />
-                </button>
+                </button>}
                 <button
                   aria-label="Sign out"
                   onClick={() =>
@@ -642,13 +644,13 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                         {participants.length === 0 && <p>No agents in this group’s chat scope.</p>}
                       </DialogContent>
                     </Dialog>
-                    <Button
+                    {role === "owner" && <Button
                       variant="outline"
                       size="sm"
                       onClick={() => group && setGroupEditor(group)}
                     >
                       <Settings2 size={14} /> {group?.project?"Manage project":"Manage group"}
-                    </Button>
+                    </Button>}
                   </div>
                 </header>
                 {groupClosed && <div className="group-status-banner" role="status">
@@ -665,7 +667,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                       ["Actions", ListChecks],
                       ["Structure", Network],
                     ] as const
-                  ).filter(([name]) => name !== "Structure" || !!group?.project).map(([name, Icon]) => (
+                  ).filter(([name]) => (role === "owner" || name === "Chat") && (name !== "Structure" || !!group?.project)).map(([name, Icon]) => (
                     <button
                       className={tab === name ? "active" : ""}
                       key={name}
@@ -1095,7 +1097,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
               />
             )}
             {(tab === "Action board" || tab === "Actions") && data && <ActionBoard key={tab === "Actions" ? groupId : "organization"} data={data} groupId={tab === "Actions" ? groupId : undefined} onRefresh={refresh} onOpenRun={(groupId,runId)=>go({groupId,view:"Runs",runId,agentId:null})}/>}
-            {tab === "User settings" && <UserSettings controllerAccess={controllerAccess} workstations={data?.workstations ?? []} onRefresh={refresh}/>}
+            {tab === "User settings" && <UserSettings role={role} user={user} controllerAccess={controllerAccess} workstations={data?.workstations ?? []} onRefresh={refresh}/>}
             {tab === "Structure" && group?.project && data && <div className="project-structure-view">{projectTeamOpen && <ProjectTeam key={`${group.id}:${JSON.stringify(group.project.members)}`} group={group} agents={data.agents} onSaved={refresh} onClose={() => setProjectTeamOpen(false)} onAdd={() => { setNewAgentProject(groupId); setNewAgent(true); }}/>}<Suspense fallback={<div className="empty-state">Opening project structure…</div>}><OrganizationChart key={groupId} workstations={data.workstations ?? []}
               projectName={group.name} layoutPath={`/organization/layout?group_id=${encodeURIComponent(groupId)}`}
               agents={data.agents.filter(a=>group.project!.members.some(m=>m.agent_id===a.id)).map(a=>({...a,reports_to:group.project!.members.find(m=>m.agent_id===a.id)?.manager_id??null,workdir:group.project!.workdir}))}

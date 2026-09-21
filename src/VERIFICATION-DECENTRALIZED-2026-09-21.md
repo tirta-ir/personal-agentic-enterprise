@@ -135,6 +135,28 @@ login and logout; zero page errors. Desktop and mobile screenshots were visually
 inspected. `npm run lint`, `npm run build` and `git diff --check` passed.
 The existing workspace UI check now uses the administrator sign-in button.
 
+## Workspace and runtime UI follow-up
+
+Workspace management now uses a responsive dialog instead of unstyled forms above
+the application. The workspace switcher, people list, invitations and destructive
+actions use the shared design components. Runtime settings have a dedicated page,
+empty and loading states, machine status rows, enrollment steps, clipboard feedback
+and a confirmation before revocation. Controller SSH settings are a separate tab.
+Group invitation checkboxes use consistent spacing and visible controls.
+
+Member settings explain access without mounting owner-only runtime requests.
+Members see their rooms without owner-only create, reorder, search and configuration
+controls. The backend authorization rules are unchanged. Member connection status
+follows successful requests instead of displaying a false reconnect notice at login.
+
+The real `verify-workspace-ui.mjs` workflow against the Mac Docker deployment covers
+owner login, workspace creation, mention insertion, selective team membership,
+runtime registration and confirmed revocation. With a private users fixture as its
+fourth argument, it also signs in as a member and verifies that runtime registration
+and invitations are not offered and no permission alert is shown. Owner/member
+screens are checked at 1440, 705 and 375 pixels with no horizontal page overflow.
+Screenshots are stored under the ignored verification directory and visually reviewed.
+
 ## Practical limits
 
 - Native clean-machine installation was not run on all three OS families. Windows native
