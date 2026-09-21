@@ -4,7 +4,7 @@ The decentralized workspace implementation adds authenticated tenants, registere
 
 ## Workspace navigation
 
-The sidebar has **Runtime**, **Profile**, and **Workspace** pages. Workspace owners can invite Matrix users and assign **Member** or **Owner** roles. Owners manage the workspace, its agents, runtimes, and actions; members use shared rooms. You cannot change your own ownership. Profile shows your authenticated identity and current access. Existing `/settings/workstations` bookmarks still open Runtime.
+Open **User settings** from the account button at the bottom of the sidebar, then choose **Profile**, **Runtime**, or **Workspace**. **Action board** and **Organization** remain in the main sidebar. Workspace owners can invite Matrix users and assign **Member** or **Owner** roles. Owners manage the workspace, its agents, runtimes, and actions; members use shared rooms. You cannot change your own ownership. Profile shows your authenticated identity and current access. Existing `/settings/workstations` bookmarks still open Runtime.
 
 On the action table, click a data-column heading to toggle ascending/descending order. Drag its right edge to resize; keyboard users can focus the separator and use Left/Right (Home resets). Unscheduled dates remain last. The pencil edits, the green play button invokes, and the red trash button confirms deletion. Stop active work before deleting. Deleted actions leave the board and cannot run again; stored run history and evidence remain available. Table sizing and sorting last until you leave the board.
 

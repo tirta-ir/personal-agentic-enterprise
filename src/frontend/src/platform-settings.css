@@ -88,3 +88,14 @@
 .profile-details dt { color: var(--muted-foreground); }
 .profile-details dd { margin: 0; overflow-wrap: anywhere; }
 .settings-person select { width: 110px; flex-shrink: 0; }
+
+.user-settings-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.settings-shell-heading { width: 100%; max-width: 1036px; margin: 0 auto; padding: 28px 28px 0; }
+.settings-shell-heading h1 { font-size: 24px; font-weight: 600; margin-bottom: 18px; }
+.settings-shell-heading .settings-tabs { padding-bottom: 12px; }
+.user-settings-shell > .user-settings { min-height: 0; }
+@media (max-width: 767px) {
+  .settings-shell-heading { padding: 18px 12px 0; }
+  .settings-shell-heading .settings-tabs { gap: 2px; }
+  .settings-shell-heading .settings-tabs button { padding-inline: 10px; }
+}

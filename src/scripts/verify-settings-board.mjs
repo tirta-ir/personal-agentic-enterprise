@@ -22,8 +22,25 @@ try {
   const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(`${base}/settings/profile`);
   await page.getByRole('heading',{name:'Profile',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Your profile',exact:true}).click();
+  await page.getByRole('button',{name:'User settings',exact:true}).click();
   assert.equal(await page.locator('.owner-settings small').count(),0);
+  const sidebar=page.getByRole('complementary');
+  for(const name of ['Action board','Organization']) await expect(sidebar.getByRole('button',{name,exact:true})).toBeVisible();
+  for(const name of ['Profile','Runtime','Workspace']) {
+    assert.equal(await sidebar.getByRole('button',{name,exact:true}).count(),0);
+    await expect(page.getByRole('navigation',{name:'User settings sections',exact:true}).getByRole('button',{name,exact:true})).toBeVisible();
+  }
+  const alignment=await page.locator('.owner-settings').evaluate(el=>{const box=el.getBoundingClientRect(),text=el.querySelector('strong').getBoundingClientRect();return {x:Math.abs((box.left+box.right-text.left-text.right)/2),y:Math.abs((box.top+box.bottom-text.top-text.bottom)/2)};});
+  assert(alignment.x<1&&alignment.y<1,JSON.stringify(alignment));
+  await page.screenshot({path:resolve(output,'user-settings-profile.png'),fullPage:true});
+  for(const width of [705,375]) {
+    await page.setViewportSize({width,height:900});
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    for(const name of ['Profile','Runtime','Workspace']) {const box=await page.getByRole('navigation',{name:'User settings sections',exact:true}).getByRole('button',{name,exact:true}).boundingBox();assert(box&&box.x>=0&&box.x+box.width<=width);}
+    await page.screenshot({path:resolve(output,`user-settings-${width}.png`),fullPage:true});
+  }
+  await page.setViewportSize({width:1440,height:1000});
+
   assert.equal(await page.locator('.owner-settings').evaluate(el=>getComputedStyle(el).outlineStyle),'none');
   await page.getByRole('button',{name:'Runtime',exact:true}).click();
   await page.getByRole('heading',{name:'Connected machines',exact:true}).waitFor();
@@ -98,7 +115,7 @@ try {
   assert.equal((await context.request.post(`${base}/api/actions/${action.id}/cancel`)).ok(),false);
   for(const width of [705,375]) {await page.setViewportSize({width,height:900});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:resolve(output,`board-${width}.png`),fullPage:true});}
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({settingsNavigation:true,rolePromotionAndDemotion:true,unauthorized403:true,selfDemotionBlocked:true,sortAscendingDescending:true,pointerResize:90,keyboardResize:-16,editAndDeletePersisted:true,deletedActionCannotInvoke:true,consoleErrors:errors,screenshots:output}));
+  console.log(JSON.stringify({settingsNavigation:true,settingsNestedUnderAccount:true,usernameCenterOffset:alignment,rolePromotionAndDemotion:true,unauthorized403:true,selfDemotionBlocked:true,sortAscendingDescending:true,pointerResize:90,keyboardResize:-16,editAndDeletePersisted:true,deletedActionCannotInvoke:true,consoleErrors:errors,screenshots:output}));
 } finally {
   if(tenant&&admin) {
     assert.equal((await admin.request.put(`${base}/api/tenants/${tenant.id}/members`,{data:{user:'@alice:agentic.local',role:'member'}})).status(),200);

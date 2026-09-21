@@ -510,14 +510,9 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                   <ChevronRight size={15} />
                 </button>
               </nav>}
-              <nav className="sidebar-shortcuts settings-navigation" aria-label="Settings">
-                <button className={`organization-button ${tab === "User settings" ? "selected" : ""}`} onClick={()=>go({view:"User settings",agentId:null,runId:null})}><Server size={18}/><span>Runtime</span><ChevronRight size={15}/></button>
-                <button className={`organization-button ${tab === "Profile" ? "selected" : ""}`} onClick={()=>go({view:"Profile",agentId:null,runId:null})}><UserRound size={18}/><span>Profile</span><ChevronRight size={15}/></button>
-                <button className={`organization-button ${tab === "Workspace settings" ? "selected" : ""}`} onClick={()=>go({view:"Workspace settings",agentId:null,runId:null})}><Building2 size={18}/><span>Workspace</span><ChevronRight size={15}/></button>
-              </nav>
               <div className="owner-row">
                 <Avatar owner />
-                <button className="owner-settings" aria-label="Your profile" title="Your profile" onClick={() => go({ view: "Profile", agentId: null, runId: null })}>
+                <button className="owner-settings" aria-label="User settings" title={`User settings · ${user}`} onClick={() => go({ view: "Profile", agentId: null, runId: null })}>
                   <strong>{user}</strong>
                 </button>
                 {role === "owner" && <button
@@ -1109,9 +1104,16 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
               />
             )}
             {(tab === "Action board" || tab === "Actions") && data && <ActionBoard key={tab === "Actions" ? groupId : "organization"} data={data} groupId={tab === "Actions" ? groupId : undefined} onRefresh={refresh} onOpenRun={(groupId,runId)=>go({groupId,view:"Runs",runId,agentId:null})}/>}
+            {["Profile", "User settings", "Workspace settings"].includes(tab) && <section className="user-settings-shell" aria-label="User settings">
+              <header className="settings-shell-heading"><h1>User settings</h1><nav className="settings-tabs" aria-label="User settings sections">
+                <Button variant={tab === "Profile" ? "secondary" : "ghost"} aria-current={tab === "Profile" ? "page" : undefined} onClick={()=>go({view:"Profile",agentId:null,runId:null})}><UserRound size={16}/>Profile</Button>
+                <Button variant={tab === "User settings" ? "secondary" : "ghost"} aria-current={tab === "User settings" ? "page" : undefined} onClick={()=>go({view:"User settings",agentId:null,runId:null})}><Server size={16}/>Runtime</Button>
+                <Button variant={tab === "Workspace settings" ? "secondary" : "ghost"} aria-current={tab === "Workspace settings" ? "page" : undefined} onClick={()=>go({view:"Workspace settings",agentId:null,runId:null})}><Building2 size={16}/>Workspace</Button>
+              </nav></header>
             {tab === "Profile" && <section className="user-settings"><div className="settings-page"><header className="settings-page-heading"><p className="settings-kicker">ACCOUNT</p><h1>Profile</h1><p>Your signed-in account and workspace access.</p></header><section className="settings-card"><div className="settings-section-title"><UserRound size={20}/><h2>{user}</h2></div><dl className="profile-details"><dt>Account</dt><dd>{user === "owner" ? "Platform administrator" : "Matrix account"}</dd><dt>Workspace</dt><dd>{workspaceName}</dd><dt>Role</dt><dd>{role === "owner" ? "Owner" : "Member"}</dd></dl></section></div></section>}
             {tab === "Workspace settings" && <section className="user-settings"><div className="settings-page"><header className="settings-page-heading"><p className="settings-kicker">SETTINGS</p><h1>Workspace</h1><p>Manage your workspace, people, and their access.</p></header>{workspaceSettings}</div></section>}
             {tab === "User settings" && <UserSettings role={role} user={user} controllerAccess={controllerAccess} workstations={data?.workstations ?? []} onRefresh={refresh}/>}
+            </section>}
             {tab === "Structure" && group?.project && data && <div className="project-structure-view">{projectTeamOpen && <ProjectTeam key={`${group.id}:${JSON.stringify(group.project.members)}`} group={group} agents={data.agents} onSaved={refresh} onClose={() => setProjectTeamOpen(false)} onAdd={() => { setNewAgentProject(groupId); setNewAgent(true); }}/>}<Suspense fallback={<div className="empty-state">Opening project structure…</div>}><OrganizationChart key={groupId} workstations={data.workstations ?? []}
               projectName={group.name} layoutPath={`/organization/layout?group_id=${encodeURIComponent(groupId)}`}
               agents={data.agents.filter(a=>group.project!.members.some(m=>m.agent_id===a.id)).map(a=>({...a,reports_to:group.project!.members.find(m=>m.agent_id===a.id)?.manager_id??null,workdir:group.project!.workdir}))}

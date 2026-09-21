@@ -188,9 +188,10 @@ Frontend lint/build and the Docker deployment passed.
 
 ## Settings navigation and action table (2026-09-22)
 
-Runtime, Profile, and Workspace are separate sidebar routes. The account button
-opens Profile without a blue pointer-focus outline or a Settings sublabel; keyboard
-focus remains visible. Workspace reuses the existing CRUD and invitation flow,
+The account button opens User settings, containing Profile, Runtime, and Workspace
+section navigation. Action board and Organization stay in the main sidebar. The
+username is centered horizontally and vertically without a blue pointer-focus
+outline or a Settings sublabel; keyboard focus remains visible. Workspace reuses the existing CRUD and invitation flow,
 adding persisted owner/member role assignment with self-demotion protection.
 
 Action headers toggle ascending/descending sort and expose mouse/touch and keyboard
@@ -223,6 +224,16 @@ work deletion refusal, cleared schedules, persistence and stale-edit rejection.
 Frontend build/lint passed. Existing bundle-size warning remains. No mocks or paid
 provider invocations were used for this UI change; the existing invoke handler is
 unchanged. Sorting and widths are page-local preferences, not saved across visits.
+
+### Navigation placement recheck (2026-09-22)
+
+After nesting the three settings sections under the account entry, both browser
+scripts passed again against Docker on mac-personal with zero page errors. The
+check asserts that the main sidebar contains Action board and Organization but no
+Profile/Runtime/Workspace entries, and that all three settings sections are visible
+inside User settings. Username bounding-box center offsets were x=0px and y=0px.
+Screenshots at 1440px, 705px, and 375px were reviewed; the settings navigation fits
+without page overflow. Frontend build/lint and Docker deployment passed.
 
 ## Practical limits
 
