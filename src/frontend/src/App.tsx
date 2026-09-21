@@ -1,4 +1,5 @@
 import {
+  type ReactNode,
   lazy,
   Suspense,
   useCallback,
@@ -38,6 +39,9 @@ import {
   LogOut,
   PanelRightClose,
   Users,
+  Server,
+  UserRound,
+  Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,7 +138,7 @@ function chatMessagesPath(groupId: string, side: string | null, before?: string)
   if (before) query.set("before", before);
   return `/groups/${groupId}/messages?${query}`;
 }
-export default function App({role = "owner", controllerAccess = true, user = "owner", workspaceName = "My workspace"}: {role?: string; controllerAccess?: boolean; user?: string; workspaceName?: string}) {
+export default function App({role = "owner", controllerAccess = true, user = "owner", workspaceName = "My workspace", workspaceSettings}: {role?: string; controllerAccess?: boolean; user?: string; workspaceName?: string; workspaceSettings?: ReactNode}) {
   const [data, setData] = useState<StateView | null>(null);
   const [catalog, setCatalog] = useState<CodexSettings | null>(null);
   const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 767px)").matches);
@@ -158,7 +162,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
   const routeError =
     !route.valid ||
     (data &&
-      ((!["Organization", "Action board", "User settings"].includes(route.view) &&
+      ((!["Organization", "Action board", "User settings", "Profile", "Workspace settings"].includes(route.view) &&
         !data.groups.some((g) => g.id === groupId)) ||
         (selectedAgent && !data.agents.some((a) => a.id === selectedAgent)) ||
         (route.runId && !selectedRun)));
@@ -477,7 +481,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                 readOnly={role !== "owner"}
                 groups={data.groups}
                 preferences={data.group_preferences}
-                selected={["Organization", "Action board"].includes(tab) ? null : groupId}
+                selected={["Organization", "Action board", "User settings", "Profile", "Workspace settings"].includes(tab) ? null : groupId}
                 running={data.runs.filter(active).map((r) => r.group_id)}
                 onCreate={() => setGroupEditor({ id: "", name: "", description: "", member_ids: [], human_ids: [], project:null, scope_levels: null, chat_lead_id: null, archived_at: null, deleted_at: null })}
                 onCreateProject={() => setGroupEditor({ id:"", name:"", description:"", project:{workdir:{path:"",canonical_path:"",git_root:null,ssh_host:null},members:[]},scope_levels:null,chat_lead_id:null,archived_at:null,deleted_at:null })}
@@ -493,7 +497,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
               />
             )}
             <div className="sidebar-bottom">
-              {role === "owner" && <nav className="sidebar-shortcuts" aria-label="Workspace settings">
+              {role === "owner" && <nav className="sidebar-shortcuts" aria-label="Workspace tools">
                 <button className={`organization-button ${tab === "Action board" ? "selected" : ""}`} onClick={() => go({view:"Action board",agentId:null,runId:null})}><ListChecks size={18}/><span>Action board</span><ChevronRight size={15}/></button>
                 <button
                   className={`organization-button ${tab === "Organization" ? "selected" : ""}`}
@@ -506,11 +510,15 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                   <ChevronRight size={15} />
                 </button>
               </nav>}
+              <nav className="sidebar-shortcuts settings-navigation" aria-label="Settings">
+                <button className={`organization-button ${tab === "User settings" ? "selected" : ""}`} onClick={()=>go({view:"User settings",agentId:null,runId:null})}><Server size={18}/><span>Runtime</span><ChevronRight size={15}/></button>
+                <button className={`organization-button ${tab === "Profile" ? "selected" : ""}`} onClick={()=>go({view:"Profile",agentId:null,runId:null})}><UserRound size={18}/><span>Profile</span><ChevronRight size={15}/></button>
+                <button className={`organization-button ${tab === "Workspace settings" ? "selected" : ""}`} onClick={()=>go({view:"Workspace settings",agentId:null,runId:null})}><Building2 size={18}/><span>Workspace</span><ChevronRight size={15}/></button>
+              </nav>
               <div className="owner-row">
                 <Avatar owner />
-                <button className="owner-settings" aria-label="User settings" title="User settings" onClick={() => go({ view: "User settings", agentId: null, runId: null })}>
+                <button className="owner-settings" aria-label="Your profile" title="Your profile" onClick={() => go({ view: "Profile", agentId: null, runId: null })}>
                   <strong>{user}</strong>
-                  <small>Settings</small>
                 </button>
                 {role === "owner" && <button
                   aria-label="Archived groups"
@@ -607,7 +615,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                 </Button>
               </div>
             )}
-            {tab !== "Organization" && tab !== "Action board" && tab !== "User settings" && tab !== "NotFound" && (
+            {tab !== "Organization" && tab !== "Action board" && tab !== "User settings" && tab !== "Profile" && tab !== "Workspace settings" && tab !== "NotFound" && (
               <>
                 <header className="topbar">
                   <div className="group-title">
@@ -1101,6 +1109,8 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
               />
             )}
             {(tab === "Action board" || tab === "Actions") && data && <ActionBoard key={tab === "Actions" ? groupId : "organization"} data={data} groupId={tab === "Actions" ? groupId : undefined} onRefresh={refresh} onOpenRun={(groupId,runId)=>go({groupId,view:"Runs",runId,agentId:null})}/>}
+            {tab === "Profile" && <section className="user-settings"><div className="settings-page"><header className="settings-page-heading"><p className="settings-kicker">ACCOUNT</p><h1>Profile</h1><p>Your signed-in account and workspace access.</p></header><section className="settings-card"><div className="settings-section-title"><UserRound size={20}/><h2>{user}</h2></div><dl className="profile-details"><dt>Account</dt><dd>{user === "owner" ? "Platform administrator" : "Matrix account"}</dd><dt>Workspace</dt><dd>{workspaceName}</dd><dt>Role</dt><dd>{role === "owner" ? "Owner" : "Member"}</dd></dl></section></div></section>}
+            {tab === "Workspace settings" && <section className="user-settings"><div className="settings-page"><header className="settings-page-heading"><p className="settings-kicker">SETTINGS</p><h1>Workspace</h1><p>Manage your workspace, people, and their access.</p></header>{workspaceSettings}</div></section>}
             {tab === "User settings" && <UserSettings role={role} user={user} controllerAccess={controllerAccess} workstations={data?.workstations ?? []} onRefresh={refresh}/>}
             {tab === "Structure" && group?.project && data && <div className="project-structure-view">{projectTeamOpen && <ProjectTeam key={`${group.id}:${JSON.stringify(group.project.members)}`} group={group} agents={data.agents} onSaved={refresh} onClose={() => setProjectTeamOpen(false)} onAdd={() => { setNewAgentProject(groupId); setNewAgent(true); }}/>}<Suspense fallback={<div className="empty-state">Opening project structure…</div>}><OrganizationChart key={groupId} workstations={data.workstations ?? []}
               projectName={group.name} layoutPath={`/organization/layout?group_id=${encodeURIComponent(groupId)}`}

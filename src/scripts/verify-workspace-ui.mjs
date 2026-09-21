@@ -44,7 +44,7 @@ try {
   await page.getByRole('dialog').waitFor({state:'hidden'});
   const scoped=await (await page.request.get(`${url}/api/state`)).json();
   assert.deepEqual(new Set(scoped.group_access.general.participant_ids),new Set(['ceo','included-team']));
-  await page.getByRole('button',{name:'User settings',exact:true}).click();
+  await page.getByRole('button',{name:'Runtime',exact:true}).click();
   await page.getByLabel('Runtime name',{exact:true}).fill('Browser runtime');
   await page.getByRole('button',{name:'Register runtime',exact:true}).click();
   await page.getByLabel('Enrollment token',{exact:true}).waitFor();
@@ -66,15 +66,15 @@ try {
     await page.getByLabel('Username',{exact:true}).fill('alice');
     await page.getByLabel('Password',{exact:true}).fill(JSON.parse(await readFile(usersFile,'utf8')).alice);
     await page.getByRole('button',{name:'Sign in',exact:true}).click();
-    await page.getByRole('button',{name:'User settings',exact:true}).click();
+    await page.getByRole('button',{name:'Runtime',exact:true}).click();
     await page.getByRole('heading',{name:'Workspace access',exact:true}).waitFor();
     assert.equal(await page.getByRole('button',{name:'Register runtime',exact:true}).count(),0);
     assert.equal(await page.getByRole('alert').count(),0);
     await page.getByRole('button',{name:'Manage workspaces',exact:true}).click();
-    await page.getByRole('dialog').waitFor();
+    await page.getByRole('heading',{name:'Workspace',exact:true}).waitFor();
     assert.equal(await page.getByRole('button',{name:'Invite',exact:true}).count(),0);
     await page.screenshot({path:resolve(output,'member-workspaces.png'),fullPage:true,animations:"disabled"});
-    await page.getByRole('button',{name:'Back to workspace',exact:true}).click();
+    await page.getByRole('button',{name:'Runtime',exact:true}).click();
     for (const width of [1440,705,375]) {
       await page.setViewportSize({width,height:900});
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));

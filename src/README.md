@@ -2,6 +2,12 @@
 
 The decentralized workspace implementation adds authenticated tenants, registered outbound workers, explicit human/agent groups, and Matrix rooms. Start with [deployment and one-line installation](DEPLOYMENT.md) and the [real-service verification record](VERIFICATION-DECENTRALIZED-2026-09-21.md). The local/SSH instructions below describe the retained bootstrap-owner mode; new workspaces use registered runtimes.
 
+## Workspace navigation
+
+The sidebar has **Runtime**, **Profile**, and **Workspace** pages. Workspace owners can invite Matrix users and assign **Member** or **Owner** roles. Owners manage the workspace, its agents, runtimes, and actions; members use shared rooms. You cannot change your own ownership. Profile shows your authenticated identity and current access. Existing `/settings/workstations` bookmarks still open Runtime.
+
+On the action table, click a data-column heading to toggle ascending/descending order. Drag its right edge to resize; keyboard users can focus the separator and use Left/Right (Home resets). Unscheduled dates remain last. The pencil edits, the green play button invokes, and the red trash button confirms deletion. Stop active work before deleting. Deleted actions leave the board and cannot run again; stored run history and evidence remain available. Table sizing and sorting last until you leave the board.
+
 ## Projects, actions and collaboration
 
 - Use **+ → Create project** beside Groups. Choose a name and a local or saved remote workdir. Creation leaves the team empty and opens **Structure** immediately. Add organization agents or create dedicated project agents and set reporting lines there; the create/edit project dialog no longer edits the team. Projects use a folder icon and `/projects/<name--id>/...` URLs. Chat, Knowledge, Runs and independent side conversations use the existing group machinery.

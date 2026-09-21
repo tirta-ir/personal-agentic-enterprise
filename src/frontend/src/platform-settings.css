@@ -83,3 +83,8 @@
   .runtime-token { flex-wrap: wrap; }
   .runtime-token input { flex: 1; min-width: 120px; }
 }
+
+.profile-details { display: grid; grid-template-columns: 100px 1fr; gap: 16px; font-size: 13px; }
+.profile-details dt { color: var(--muted-foreground); }
+.profile-details dd { margin: 0; overflow-wrap: anywhere; }
+.settings-person select { width: 110px; flex-shrink: 0; }

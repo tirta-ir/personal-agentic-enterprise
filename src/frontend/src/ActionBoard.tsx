@@ -1,15 +1,18 @@
-import { useState } from "react";
-import { CalendarDays, List, Play, Plus, Square, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
+import { useRef, useState } from "react";
+import { CalendarDays, List, Play, Plus, Square, ChevronLeft, ChevronRight, Pencil, Trash2, FileText, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { post, requestId } from "./api";
+import { api, post, requestId } from "./api";
 import type { StateView } from "./bindings/StateView";
 import type { ActionItem } from "./bindings/ActionItem";
 import "./ActionBoard.css";
 
+const columns = ["Project / group", "PIC", "Action", "Planned start", "Status", "Controls"];
+const initialWidths = [170, 130, 230, 180, 120, 170];
+const collator = new Intl.Collator(undefined, {numeric:true, sensitivity:"base"});
 const localDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const localTime = (date: Date) => `${localDate(date)}T${String(date.getHours()).padStart(2,"0")}:${String(date.getMinutes()).padStart(2,"0")}`;
 
@@ -21,11 +24,22 @@ export function ActionBoard({ data, groupId, onRefresh, onOpenRun }: {
   const [pic,setPic] = useState("");
   const [month,setMonth] = useState(() => new Date(new Date().getFullYear(),new Date().getMonth(),1));
   const [draft,setDraft] = useState<ActionItem|null>(null);
+  const [deleting,setDeleting] = useState<ActionItem|null>(null);
+  const [sort,setSort] = useState({column:0, descending:false});
+  const [widths,setWidths] = useState(initialWidths);
+  const resizing = useRef<{column:number; x:number; width:number}|null>(null);
+  const resize = (column:number, width:number) => setWidths(values=>values.map((value,i)=>i===column?Math.max(column===5?150:100,Math.min(800,width)):value));
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState("");
   const groups = data.groups.filter(g => !g.archived_at && !g.deleted_at);
   const items = (data.actions??[]).filter(a => data.groups.some(g=>g.id===a.group_id&&!g.deleted_at) && (!groupId && !filter || a.group_id === (groupId || filter)) && (!pic || a.assignee_id === pic));
-  const sorted = [...items].sort((a,b) => (data.groups.find(g=>g.id===a.group_id)?.name??"").localeCompare(data.groups.find(g=>g.id===b.group_id)?.name??"") || a.assignee_id.localeCompare(b.assignee_id) || (a.planned_start??"z").localeCompare(b.planned_start??"z"));
+  const value = (a:ActionItem) => [data.groups.find(g=>g.id===a.group_id)?.name??"Unavailable group",data.agents.find(p=>p.id===a.assignee_id)?.name??"Deleted agent",a.title,a.planned_start??"",a.status][sort.column];
+  const sorted = [...items].sort((a,b) => {
+    const left=value(a), right=value(b);
+    if(sort.column===3 && (!left||!right)) return left ? -1 : right ? 1 : a.id.localeCompare(b.id);
+    const order=sort.column===3 ? Date.parse(left)-Date.parse(right) : collator.compare(left,right);
+    return (sort.descending?-order:order) || a.id.localeCompare(b.id);
+  });
   const editingGroup = groups.find(g=>g.id===draft?.group_id);
   const allowed = data.group_access[draft?.group_id??""]?.delegate_ids ?? [];
   const people = data.agents.filter(a=>allowed.includes(a.id) && a.enabled);
@@ -55,18 +69,26 @@ export function ActionBoard({ data, groupId, onRefresh, onOpenRun }: {
       {!groupId && <select aria-label="Filter project or group" value={filter} onChange={e=>setFilter(e.target.value)}><option value="">All projects and groups</option>{data.groups.filter(g=>!g.deleted_at).map(g=><option key={g.id} value={g.id}>{g.project?"Project: ":"Group: "}{g.name}</option>)}</select>}
       <select aria-label="Filter PIC" value={pic} onChange={e=>setPic(e.target.value)}><option value="">All people in charge</option>{data.agents.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select>
     </div>
-    {view==="table" ? <div className="action-table-scroll"><table className="action-table"><thead><tr><th>Project / group</th><th>PIC</th><th>Action</th><th>Planned start</th><th>Status</th><th>Controls</th></tr></thead><tbody>
+    {view==="table" ? <div className="action-table-scroll"><table className="action-table" style={{width:widths.reduce((a,b)=>a+b,0)}}><colgroup>{widths.map((width,i)=><col key={i} style={{width}}/>)}</colgroup><thead><tr>{columns.map((label,i)=><th key={label} aria-sort={i===5?undefined:sort.column===i?(sort.descending?"descending":"ascending"):"none"}>
+      {i===5 ? label : <button className="action-sort" onClick={()=>setSort({column:i,descending:sort.column===i?!sort.descending:false})}>{label}{sort.column===i?(sort.descending?<ArrowDown size={14}/>:<ArrowUp size={14}/>):<ArrowUpDown size={14}/>}</button>}
+      <span className="action-resizer" role="separator" tabIndex={0} aria-orientation="vertical" aria-label={`Resize ${label} column`} aria-valuemin={i===5?150:100} aria-valuemax={800} aria-valuenow={widths[i]}
+        onPointerDown={e=>{e.preventDefault();resizing.current={column:i,x:e.clientX,width:widths[i]};e.currentTarget.setPointerCapture(e.pointerId);}}
+        onPointerMove={e=>{const drag=resizing.current;if(drag?.column===i)resize(i,drag.width+e.clientX-drag.x);}}
+        onPointerUp={()=>{resizing.current=null;}} onPointerCancel={()=>{resizing.current=null;}} onLostPointerCapture={()=>{resizing.current=null;}}
+        onKeyDown={e=>{if(["ArrowLeft","ArrowRight","Home"].includes(e.key)){e.preventDefault();resize(i,e.key==="Home"?initialWidths[i]:widths[i]+(e.key==="ArrowRight"?16:-16));}}}/>
+    </th>)}</tr></thead><tbody>
       {sorted.map(a=><tr key={a.id}><td data-label="Project / group">{data.groups.find(g=>g.id===a.group_id)?.name??"Unavailable group"}</td><td data-label="PIC">{data.agents.find(p=>p.id===a.assignee_id)?.name??"Deleted agent"}</td><td data-label="Action"><button onClick={()=>setDraft(a)}>{a.title}</button>{a.error && <small className="error">{a.error}</small>}</td><td data-label="Planned start">{a.planned_start?new Date(a.planned_start).toLocaleString():"Unscheduled"}</td><td data-label="Status"><span className={`action-status status-${a.status}`}>{a.status}</span></td><td data-label="Controls"><div className="action-controls">
-        <Button variant="ghost" size="sm" aria-label={`Edit ${a.title}`} disabled={busy||running(a)} onClick={()=>setDraft(a)}><Pencil size={14}/></Button>
-        {running(a)?<Button variant="outline" size="sm" disabled={busy} onClick={()=>void perform(()=>post(`/actions/${a.id}/cancel`))}><Square size={13}/>Stop</Button>:<Button variant="outline" size="sm" disabled={busy||a.status==="completed"||!groups.some(g=>g.id===a.group_id)} onClick={()=>void perform(()=>post(`/actions/${a.id}/invoke`))}><Play size={13}/>Run now</Button>}
-        {!running(a)&&a.status!=="completed"&&a.status!=="cancelled"&&<Button variant="ghost" size="sm" disabled={busy} onClick={()=>void perform(()=>post(`/actions/${a.id}/cancel`))}>Cancel</Button>}
-        {a.run_id&&<Button variant="ghost" size="sm" onClick={()=>onOpenRun(a.group_id,a.run_id!)}>Evidence</Button>}
+        <Button variant="ghost" size="icon" aria-label={`Edit ${a.title}`} title="Edit action" disabled={busy||running(a)} onClick={()=>setDraft(a)}><Pencil size={16}/></Button>
+        {running(a)?<Button variant="ghost" size="icon" aria-label={`Stop ${a.title}`} title="Stop action" disabled={busy} onClick={()=>void perform(()=>post(`/actions/${a.id}/cancel`))}><Square size={16}/></Button>:<Button variant="ghost" size="icon" className="action-play" aria-label={`Run ${a.title}`} title="Run now" disabled={busy||a.status==="completed"||!groups.some(g=>g.id===a.group_id)} onClick={()=>void perform(()=>post(`/actions/${a.id}/invoke`))}><Play size={16}/></Button>}
+        <Button variant="ghost" size="icon" className="action-delete" aria-label={`Delete ${a.title}`} title={running(a)?"Stop the action before deleting":"Delete action"} disabled={busy||running(a)} onClick={()=>setDeleting(a)}><Trash2 size={16}/></Button>
+        {a.run_id&&<Button variant="ghost" size="icon" aria-label={`Evidence for ${a.title}`} title="View evidence" onClick={()=>onOpenRun(a.group_id,a.run_id!)}><FileText size={16}/></Button>}
       </div></td></tr>)}
     </tbody></table>{!items.length&&<p className="empty-state">No actions here yet.</p>}</div> : <>
       <div className="calendar-heading"><Button variant="ghost" aria-label="Previous month" onClick={()=>setMonth(new Date(month.getFullYear(),month.getMonth()-1,1))}><ChevronLeft/></Button><strong>{month.toLocaleDateString(undefined,{month:"long",year:"numeric"})}</strong><Button variant="ghost" aria-label="Next month" onClick={()=>setMonth(new Date(month.getFullYear(),month.getMonth()+1,1))}><ChevronRight/></Button></div>
       <div className="action-calendar">{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=><strong className="calendar-weekday" key={d}>{d}</strong>)}{days.map(day=><div key={localDate(day)} className={`calendar-day ${day.getMonth()!==month.getMonth()?"outside":""}`}><button className="calendar-day-number" aria-label={`Add action on ${localDate(day)}`} onClick={()=>{const start=new Date(day);start.setHours(9);create(start);}}>{day.getDate()}</button>{items.filter(a=>a.planned_start&&localDate(new Date(a.planned_start))===localDate(day)).map(card)}</div>)}</div>
       <h2 className="backlog-heading">Unscheduled backlog</h2><div className="action-backlog">{items.filter(a=>!a.planned_start&&!["completed","cancelled"].includes(a.status)).map(card)}{!items.some(a=>!a.planned_start&&!["completed","cancelled"].includes(a.status))&&<p>No unscheduled actions.</p>}</div>
     </>}
+    {deleting&&<Dialog open onOpenChange={open=>{if(!open&&!busy)setDeleting(null);}}><DialogContent><DialogHeader><DialogTitle>Delete action?</DialogTitle><DialogDescription>Remove “{deleting.title}” from the board. Existing run history and evidence are retained.</DialogDescription></DialogHeader>{error&&<p className="error" role="alert">{error}</p>}<div className="action-controls"><Button variant="outline" disabled={busy} onClick={()=>setDeleting(null)}>Keep action</Button><Button variant="destructive" disabled={busy} onClick={()=>void perform(async()=>{await api(`/actions/${deleting.id}`,{method:"DELETE"});setDeleting(null);})}>Delete action</Button></div></DialogContent></Dialog>}
     {draft&&<Dialog open onOpenChange={open=>{if(!open&&!busy)setDraft(null);}}><DialogContent className="action-dialog"><DialogHeader><DialogTitle>{draft.revision?"Edit action":"New action"}</DialogTitle><DialogDescription>Assign a PIC, then save for later, schedule, or run now.</DialogDescription></DialogHeader>
       <form className="form-stack" onSubmit={e=>{e.preventDefault();const now=(e.nativeEvent as SubmitEvent).submitter?.getAttribute("value")==="now";void perform(async()=>{const saved=await post<ActionItem>("/actions",{id:draft.id,revision:draft.revision,group_id:draft.group_id,title:draft.title,body:draft.body,assignee_id:draft.assignee_id,planned_start:now?null:draft.planned_start});setDraft(saved);if(now)await post(`/actions/${draft.id}/invoke`);setDraft(null);});}}>
         <Label htmlFor="action-group">Project or group</Label><select id="action-group" value={draft.group_id} required disabled={busy||running(draft)} onChange={e=>setDraft({...draft,group_id:e.target.value,assignee_id:""})}><option value="" disabled>Select a workspace</option>{groups.map(g=><option key={g.id} value={g.id}>{g.project?"Project: ":"Group: "}{g.name}</option>)}</select>

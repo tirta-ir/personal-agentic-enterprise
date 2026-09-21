@@ -458,20 +458,44 @@ impl Platform {
                     .map_err(anyhow::Error::from)?,
             )
             .map_err(anyhow::Error::from)?;
-            if sub == "members" && [Method::POST, Method::DELETE].contains(&method) {
+            if sub == "members" && [Method::POST, Method::PUT, Method::DELETE].contains(&method) {
                 let invite = input["user"].as_str().context("Matrix user ID required")?;
                 matrix_sdk::ruma::UserId::parse(invite).map_err(anyhow::Error::from)?;
-                ensure!(invite != user, "Cannot remove your own ownership");
+                ensure!(invite != user, "Cannot change your own ownership");
+                let assigned_role = input["role"]
+                    .as_str()
+                    .or_else(|| {
+                        (method != Method::PUT && input.get("role").is_none()).then_some("member")
+                    })
+                    .context("Role must be owner or member")?;
+                ensure!(
+                    ["owner", "member"].contains(&assigned_role),
+                    "Choose owner or member"
+                );
                 self.db(|db| {
+                    let current: String = db.query_row(
+                        "SELECT role FROM members WHERE tenant=? AND user=?",
+                        [id, &user],
+                        |r| r.get(0),
+                    )?;
+                    ensure!(current == "owner", "Workspace owner required");
                     if method == Method::DELETE {
                         db.execute(
                             "DELETE FROM members WHERE tenant=? AND user=? AND role='member'",
                             [id, invite],
                         )?;
+                    } else if method == Method::PUT {
+                        ensure!(
+                            db.execute(
+                                "UPDATE members SET role=? WHERE tenant=? AND user=?",
+                                [assigned_role, id, invite]
+                            )? == 1,
+                            "Workspace member not found"
+                        );
                     } else {
                         db.execute(
-                            "INSERT OR IGNORE INTO members VALUES(?,?,'member')",
-                            [id, invite],
+                            "INSERT OR IGNORE INTO members VALUES(?,?,?)",
+                            [id, invite, assigned_role],
                         )?;
                     }
                     Ok(())

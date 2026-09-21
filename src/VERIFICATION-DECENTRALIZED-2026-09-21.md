@@ -186,6 +186,44 @@ button. The popover fit above the input at 1200px and 375px. Screenshots were
 visually reviewed; zero messages were sent and zero page errors were recorded.
 Frontend lint/build and the Docker deployment passed.
 
+## Settings navigation and action table (2026-09-22)
+
+Runtime, Profile, and Workspace are separate sidebar routes. The account button
+opens Profile without a blue pointer-focus outline or a Settings sublabel; keyboard
+focus remains visible. Workspace reuses the existing CRUD and invitation flow,
+adding persisted owner/member role assignment with self-demotion protection.
+
+Action headers toggle ascending/descending sort and expose mouse/touch and keyboard
+column resizing. Pencil/play/trash controls have accessible names; play is green
+and trash is red. Confirmed deletion removes the action from board and agent lists,
+clears its schedule, retains evidence, rejects active work and prevents later
+invocation or stale edits. No schema migration or new dependency was needed.
+
+Reproduce against the Mac Docker deployment with private, ignored credential files:
+
+```powershell
+node src/scripts/verify-settings-board.mjs http://localhost:18766 org/verification-decentralized-20260921/mac-owner.key org/verification-decentralized-20260921/mac-users.json org/verification-decentralized-20260921/settings-board
+npm.cmd --prefix src/frontend run build
+npm.cmd --prefix src/frontend run lint
+# From src:
+cargo test --locked --bin agentic-enterprise
+```
+
+The browser check uses real Matrix Alice/Bob logins, HTTP endpoints and SQLite in
+an isolated workspace that it deletes afterward. It verifies navigation, role
+promotion/demotion, forbidden member requests (403), self-demotion and invalid-role
+rejection, ascending/descending sorting, 90px pointer resize, 16px keyboard resize,
+editing, deletion confirmation/cancellation, persistence after reload and refusal
+to invoke/cancel deleted records. Screenshots cover desktop, 705px and 375px layouts.
+The updated `verify-workspace-ui.mjs` regression also passed login, workspace creation,
+selective teams, mention insertion, runtime registration/revocation and member access
+at 1440px, 705px and 375px. Both runs reported zero browser exceptions.
+All 62 Rust tests passed, including active
+work deletion refusal, cleared schedules, persistence and stale-edit rejection.
+Frontend build/lint passed. Existing bundle-size warning remains. No mocks or paid
+provider invocations were used for this UI change; the existing invoke handler is
+unchanged. Sorting and widths are page-local preferences, not saved across visits.
+
 ## Practical limits
 
 - Native clean-machine installation was not run on all three OS families. Windows native

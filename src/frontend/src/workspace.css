@@ -2406,7 +2406,11 @@ code {
 .workstation-online i { background: #16a34a; }
 .workstation-offline i, .workstation-attention i { background: #dc2626; }
 .owner-row .owner-settings { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; text-align: left; gap: 3px; padding: 4px; border-radius: 6px; }
-.owner-row .owner-settings:hover { background: var(--accent); }
+.owner-row .owner-settings:hover { background: var(--muted); }
+.owner-row .owner-settings:focus:not(:focus-visible) { outline: none; box-shadow: none; }
+.owner-row .owner-settings:focus-visible { outline: 2px solid var(--muted-foreground); }
+.settings-navigation { padding-top: 0; }
+.owner-row .owner-settings strong { max-width: 100%; }
 .project-structure-view { flex: 1; min-height: 0; overflow: auto; }
 .project-structure-view .organization-view { height: max(650px, calc(100dvh - 180px)); min-height: 650px; }
 .project-team-editor { margin: 20px 24px 0; border: 1px solid var(--border); border-radius: 12px; padding: 20px; background: var(--card); }

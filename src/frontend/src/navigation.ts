@@ -12,7 +12,7 @@ export const sections = [
 ] as const;
 export type Section = (typeof sections)[number];
 export type View =
-  "Chat" | "Knowledge" | "Runs" | "Scheduled tasks" | "Organization" | "Actions" | "Structure" | "Action board" | "User settings";
+  "Chat" | "Knowledge" | "Runs" | "Scheduled tasks" | "Organization" | "Actions" | "Structure" | "Action board" | "User settings" | "Profile" | "Workspace settings";
 export type Route = {
   groupId: string;
   view: View;
@@ -61,7 +61,9 @@ export function parseRoute(url: string): Route {
   route.sideChatId = location.searchParams.get("side");
   if (route.sideChatId && !/^[a-zA-Z0-9-]{1,64}$/.test(route.sideChatId)) return { ...route, valid: false };
   if (!parts.length) return route;
-  if (parts.join("/") === "settings/workstations") return { ...route, view: "User settings" };
+  if (parts.join("/") === "settings/profile") return { ...route, view: "Profile" };
+  if (parts.join("/") === "settings/workspace") return { ...route, view: "Workspace settings" };
+  if (["settings/runtime", "settings/workstations"].includes(parts.join("/"))) return { ...route, view: "User settings" };
   if (parts[0] === "actions" && parts.length === 1) return { ...route, view: "Action board" };
   if (parts[0] === "organization") {
     route.view = "Organization";
@@ -86,7 +88,7 @@ export function parseRoute(url: string): Route {
 }
 export function routePath(route: Route, group?: Named, agent?: Named): string {
   let path =
-    route.view === "User settings" ? "/settings/workstations" : route.view === "Action board" ? "/actions" : route.view === "Organization"
+    route.view === "Profile" ? "/settings/profile" : route.view === "Workspace settings" ? "/settings/workspace" : route.view === "User settings" ? "/settings/runtime" : route.view === "Action board" ? "/actions" : route.view === "Organization"
       ? "/organization"
       : `/${group?.project ? "projects" : "groups"}/${encodeURIComponent(group ? slug(group) : route.groupId)}/${route.view.toLowerCase().replaceAll(" ", "-")}`;
   if (route.view === "Organization" && route.agentId)

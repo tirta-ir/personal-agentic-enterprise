@@ -58,6 +58,10 @@ pub fn router(app: App, frontend: PathBuf) -> Router {
         .route("/api/actions", post(crate::actions::save))
         .route("/api/actions/{id}/invoke", post(crate::actions::invoke))
         .route("/api/actions/{id}/cancel", post(crate::actions::cancel))
+        .route(
+            "/api/actions/{id}",
+            axum::routing::delete(crate::actions::delete),
+        )
         .route("/api/organization/layout", put(save_organization_layout))
         .route("/api/codex/settings", get(codex_catalog))
         .route("/api/harness/settings", get(harness_catalog))
@@ -252,7 +256,12 @@ async fn state(State(app): State<App>) -> ApiResult<StateView> {
     let mut view = StateView {
         workstations: crate::workstations::list(&app.store)?,
         questions: crate::questions::recent(&app)?,
-        actions: app.store.list("action_items")?,
+        actions: app
+            .store
+            .list::<ActionItem>("action_items")?
+            .into_iter()
+            .filter(|a| a.status != "deleted")
+            .collect(),
         project_connections: app
             .store
             .list::<Group>("groups")?
