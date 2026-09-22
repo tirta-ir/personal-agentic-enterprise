@@ -945,13 +945,13 @@ pub(crate) fn read_pipe(
         loop {
             buffer.clear();
             let n = std::io::Read::by_ref(&mut reader)
-                .take(1024 * 1024)
+                .take(8 * 1024 * 1024)
                 .read_until(b'\n', &mut buffer)?;
             if n == 0 {
                 break;
             }
-            if n == 1024 * 1024 && buffer.last() != Some(&b'\n') {
-                bail!("Provider frame exceeds 1 MiB");
+            if n == 8 * 1024 * 1024 && buffer.last() != Some(&b'\n') {
+                bail!("Provider frame exceeds 8 MiB");
             }
             if tx
                 .send((error, String::from_utf8_lossy(&buffer).trim_end().into()))

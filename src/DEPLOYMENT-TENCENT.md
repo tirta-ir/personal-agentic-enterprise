@@ -268,3 +268,32 @@ also checked without sending a message: selecting B. Riemann inserted its assign
 name. Frontend lint/typecheck/build passed, browser errors were zero, and both
 workspaces retained their original agents, groups and layouts. Final evidence:
 `org/verification-mentions-20260922/verified/proof.json`.
+
+Worker output recovery was deployed on 2026-09-22 to Tencent, TIRTA-PC and
+TIRTA-MAC. Provider frames and report batches allow up to 8 MiB, below the 10 MiB
+HTTP body limit. Batches are bounded by bytes as well as frame count. A failed
+outbox upload retains its data and no longer prevents other uploads or heartbeats.
+Completion is sent only after all committed frames are included. Existing run
+output budgets and no-replay semantics remain unchanged.
+
+Production proof: the original rejected job had 46 frames, including two larger
+than the former 1 MiB limit. Before the controller upgrade, the new Windows worker
+stayed online and completed a workdir probe while that upload was still rejected.
+After upgrade, all 46 frames were acknowledged; canonical SHA-256 hashes matched
+the preserved originals. The cancelled job and interrupted run retained their
+historical status. Both workers passed authenticated workdir probes, and both
+workspaces retained their agents, groups, organization and project layouts.
+Private evidence: `org/verification-worker-output-20260922/`.
+Checks: `cargo test --locked` (68 passed), `cargo build --locked`, AMD64 controller
+and ARM64 worker Docker builds. No mocks were used for the production checks.
+
+Controller image: `agentic-enterprise:worker-output-20260922`, image SHA-256
+`0c6661a6c24a5b747cb73427a3e0d9d7f59fd90e133d2e640e91cde7c5023050`.
+The cross-built backend binary is layered over the unchanged mentions frontend.
+Mac worker: `ae-tencent-worker:worker-output-20260922`, image SHA-256
+`c929dd3fe1899037ae3c82b47c89ac89afa94d68ada9f95c285252557a52ca2b`.
+Windows worker SHA-256:
+`0035AF2FEE52DFCBC438103E3A04C0D8BDCDF1664E27EEA15407F2746F5DA6E7`.
+Rollback: `compose.before-worker-output.yaml` beside each deployment compose;
+Windows backup `org/verification-worker-output-20260922/worker-before.exe`.
+The controller remains bound only to NetBird `10.69.0.101:18766`.

@@ -369,3 +369,13 @@ validation remain on the server.
 runtime-id workdir` checks mouse/keyboard selection, real named-agent invocation,
 blue profile links, reload persistence and legacy rendering. It uses one temporary
 agent/group and a real read-only Codex run; successful checks remove both entities.
+
+
+Worker result uploads are capped by serialized bytes as well as frame count.
+Individual provider frames may be up to 8 MiB; report batches stay within 8 MiB,
+below the controller's 10 MiB request limit. The existing per-run output budget
+remains 8 MiB. Oversized new frames fail explicitly before entering the outbox.
+A rejected upload retains its unacknowledged data and reports the job ID, while
+other uploads and heartbeats continue. Completion is sent only after every frame
+in the finished outbox has been included; earlier interrupted runs are not replayed
+or changed to successful merely because their remaining output was uploaded.

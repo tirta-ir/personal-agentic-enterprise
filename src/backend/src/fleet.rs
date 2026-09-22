@@ -146,6 +146,64 @@ mod tests {
     use super::*;
 
     #[test]
+    fn large_output_batches_preserve_frames_and_completion() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let path = temp.path().join("frames.jsonl");
+        let large = "x".repeat(4 * 1024 * 1024);
+        append(
+            &path,
+            &Frame {
+                stderr: false,
+                line: large.clone(),
+            },
+        )?;
+        append(
+            &path,
+            &Frame {
+                stderr: false,
+                line: large.clone(),
+            },
+        )?;
+        append(
+            &path,
+            &Frame {
+                stderr: false,
+                line: "completed".into(),
+            },
+        )?;
+        let bytes = std::fs::read(&path)?;
+        let first = report_batch(&bytes, 0)?;
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0]["line"], large);
+        let last = report_batch(&bytes, first.len())?;
+        assert_eq!(last.len(), 2);
+        assert_eq!(last[0]["line"], large);
+        assert_eq!(last[1]["line"], "completed");
+        assert!(report_batch(&bytes, 3)?.is_empty());
+        assert!(
+            append(
+                &path,
+                &Frame {
+                    stderr: false,
+                    line: "x".repeat(MAX_REPORT_BYTES)
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read(&path)?, bytes);
+        let (tx, rx) = std::sync::mpsc::sync_channel(2);
+        let reader = crate::runtime::read_pipe(
+            std::io::Cursor::new(format!("{large}\ncompleted\n")),
+            tx,
+            false,
+        );
+        assert_eq!(rx.recv()?.1, large);
+        assert_eq!(rx.recv()?.1, "completed");
+        reader.join().unwrap()?;
+        Ok(())
+    }
+
+    #[test]
     fn metadata_updates_preserve_worker_registration_and_reject_configuration_injection()
     -> Result<()> {
         let directory = tempfile::tempdir()?;
@@ -462,7 +520,7 @@ pub fn worker_request(
                     let frames=input["frames"].as_array().context("Frames required")?;ensure!(frames.len()<=256,"Too many frames");
                     let offset=input["offset"].as_i64().context("Offset required")?;ensure!(offset>=0,"Invalid offset");
                     let expected:i64=db.query_row("SELECT COALESCE(MAX(seq)+1,0) FROM fleet_frames WHERE job=?",[job],|r|r.get(0))?;ensure!(offset<=expected,"Outbox gap; resend unacknowledged frames");
-                    for (i,frame) in frames.iter().enumerate(){let _:Frame=serde_json::from_value(frame.clone())?;ensure!(frame.to_string().len()<=1024*1024,"Frame too large");let seq=offset+i as i64;
+                    for (i,frame) in frames.iter().enumerate(){let _:Frame=serde_json::from_value(frame.clone())?;ensure!(frame.to_string().len()<=MAX_REPORT_BYTES,"Provider frame exceeds 8 MiB");let seq=offset+i as i64;
                         let old:Option<String>=db.query_row("SELECT frame FROM fleet_frames WHERE job=? AND seq=?",params![job,seq],|r|r.get(0)).optional()?;
                         if let Some(old)=old{ensure!(old==frame.to_string(),"Conflicting replay");}else{db.execute("INSERT INTO fleet_frames VALUES(?,?,?)",params![job,seq,frame.to_string()])?;}
                     }
@@ -494,7 +552,32 @@ struct Frame {
     stderr: bool,
     line: String,
 }
+const MAX_REPORT_BYTES: usize = 8 * 1024 * 1024;
+fn report_batch(bytes: &[u8], ack: usize) -> Result<Vec<Value>> {
+    let mut frames = Vec::new();
+    let mut size = 0;
+    for line in bytes
+        .split_inclusive(|b| *b == b'\n')
+        .filter(|line| line.ends_with(b"\n"))
+        .skip(ack)
+        .take(128)
+    {
+        let frame: Value = serde_json::from_slice(line)?;
+        let length = frame.to_string().len();
+        ensure!(length <= MAX_REPORT_BYTES, "Provider frame exceeds 8 MiB");
+        if size + length > MAX_REPORT_BYTES {
+            break;
+        }
+        size += length;
+        frames.push(frame);
+    }
+    Ok(frames)
+}
 fn append(path: &Path, frame: &Frame) -> Result<()> {
+    ensure!(
+        serde_json::to_vec(frame)?.len() <= MAX_REPORT_BYTES,
+        "Provider frame exceeds 8 MiB"
+    );
     let mut out = OpenOptions::new().create(true).append(true).open(path)?;
     serde_json::to_writer(&mut out, frame)?;
     out.write_all(b"\n")?;
@@ -630,42 +713,45 @@ pub fn worker(
                 if !path.is_dir() || path.join("acknowledged").exists() {
                     continue;
                 }
-                let id = path
-                    .file_name()
-                    .context("Outbox name")?
-                    .to_string_lossy()
-                    .into_owned();
-                let ack = std::fs::read_to_string(path.join("ack"))
-                    .ok()
-                    .and_then(|s| s.parse::<usize>().ok())
-                    .unwrap_or(0);
-                let bytes = std::fs::read(path.join("frames.jsonl")).unwrap_or_default();
-                let mut frames = Vec::<Value>::new();
-                for line in bytes
-                    .split_inclusive(|b| *b == b'\n')
-                    .filter(|line| line.ends_with(b"\n"))
-                    .skip(ack)
-                    .take(128)
-                {
-                    frames.push(serde_json::from_slice(line)?);
-                }
-                let done = path.join("done").exists() && frames.len() < 128;
-                let response: Value = http
-                    .post(format!("{}/api/runtime/report", registration.url))
-                    .bearer_auth(&registration.token)
-                    .json(&json!({"job":id,"offset":ack,"frames":frames,"done":done}))
-                    .send()?
-                    .error_for_status()?
-                    .json()?;
-                store::atomic_write(&path.join("ack"), response["ack"].to_string().as_bytes())?;
-                if response["cancel"] == true {
-                    if let Some(flag) = running.get(&id) {
-                        flag.store(true, Ordering::SeqCst);
+                let report = (|| -> Result<()> {
+                    let id = path
+                        .file_name()
+                        .context("Outbox name")?
+                        .to_string_lossy()
+                        .into_owned();
+                    let ack = std::fs::read_to_string(path.join("ack"))
+                        .ok()
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .unwrap_or(0);
+                    let finished = path.join("done").exists();
+                    let bytes = std::fs::read(path.join("frames.jsonl")).unwrap_or_default();
+                    let frames = report_batch(&bytes, ack)?;
+                    let count = bytes
+                        .split_inclusive(|b| *b == b'\n')
+                        .filter(|line| line.ends_with(b"\n"))
+                        .count();
+                    let done = finished && ack + frames.len() == count;
+                    let response: Value = http
+                        .post(format!("{}/api/runtime/report", registration.url))
+                        .bearer_auth(&registration.token)
+                        .json(&json!({"job":id,"offset":ack,"frames":frames,"done":done}))
+                        .send()?
+                        .error_for_status()?
+                        .json()?;
+                    store::atomic_write(&path.join("ack"), response["ack"].to_string().as_bytes())?;
+                    if response["cancel"] == true {
+                        if let Some(flag) = running.get(&id) {
+                            flag.store(true, Ordering::SeqCst);
+                        }
                     }
-                }
-                if done {
-                    store::atomic_write(&path.join("acknowledged"), b"1")?;
-                    running.remove(&id);
+                    if done {
+                        store::atomic_write(&path.join("acknowledged"), b"1")?;
+                        running.remove(&id);
+                    }
+                    Ok(())
+                })();
+                if let Err(error) = report {
+                    tracing::warn!(job=%path.file_name().unwrap_or_default().to_string_lossy(), "Worker output upload pending: {error}");
                 }
             }
             let response: Value = http
