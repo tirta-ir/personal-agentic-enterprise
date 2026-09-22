@@ -894,7 +894,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                               if (message.side_chat_id !== sideChatId) go({ sideChatId: message.side_chat_id });
                             }} />}
                           <div className="markdown">
-                            <MessageMarkdown runId={m.run_id} onPreview={openPreview}>
+                            <MessageMarkdown runId={m.run_id} onPreview={openPreview} agents={allAgents} onMention={setSelectedAgent}>
                               {m.command === "btw" ? (m.body.replace(/^\s*\/btw\s*/, "") || "Side conversation") : m.body}
                             </MessageMarkdown>
                           </div>

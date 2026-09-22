@@ -356,3 +356,16 @@ Run `node src/scripts/verify-runtime-browser.mjs credentials.json output-dir
 workspace-id windows-runtime-id mac-runtime-id` for the live browser regression.
 It creates/removes one temporary project, checks both workers, reload persistence,
 mobile layout and directory authorization, without starting an agent run.
+
+
+Agent mention suggestions insert the assigned name (`@B. Riemann`) instead of an
+internal ID. Chat messages render recognized name/ID mentions as blue profile links;
+older ID-based messages retain their stored text but display the current agent name.
+Code spans/blocks, email addresses, partial ID matches and existing Markdown links
+are not rewritten. Native name-based recipient resolution and room membership
+validation remain on the server.
+
+`node src/scripts/verify-mentions.mjs credentials.json output-dir workspace-id
+runtime-id workdir` checks mouse/keyboard selection, real named-agent invocation,
+blue profile links, reload persistence and legacy rendering. It uses one temporary
+agent/group and a real read-only Codex run; successful checks remove both entities.

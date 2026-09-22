@@ -65,9 +65,9 @@ export function CommandInput({
     const start = caret - mention[1].length - 1;
     const end = caret + (value.slice(caret).match(/^[\p{L}\p{N}_.-]*/u)?.[0].length ?? 0);
     const suffix = value.slice(end);
-    const replacement = `@${agent.id}${suffix.startsWith(" ") ? "" : " "}`;
+    const replacement = `@${agent.name}${suffix.startsWith(" ") ? "" : " "}`;
     onChange(value.slice(0, start) + replacement + suffix);
-    const nextCaret = start + agent.id.length + 2;
+    const nextCaret = start + replacement.length + (suffix.startsWith(" ") ? 1 : 0);
     setCaret(nextCaret);
     setSelected(0);
     requestAnimationFrame(() => { input.current?.focus(); input.current?.setSelectionRange(nextCaret, nextCaret); });
@@ -89,7 +89,7 @@ export function CommandInput({
     <>
       {mentionOpen && <div className="slash-picker mention-picker" id="chat-mentions" role="listbox" aria-label="Mention an agent" ref={mentionList}>
         <div className="mention-picker-heading">Agents in this room <span>↑ ↓ to browse · Enter to select</span></div>
-        {agentMatches.map((agent, index) => <button type="button" role="option" tabIndex={-1} id={`mention-${index}`} key={agent.id} aria-selected={activeAgent === index} onMouseDown={e=>e.preventDefault()} onClick={()=>chooseAgent(agent)}><Bot size={18}/><span><strong>{agent.name}</strong><small>@{agent.id}{agent.position ? ` · ${agent.position}` : ""}</small></span><kbd>↵</kbd></button>)}
+        {agentMatches.map((agent, index) => <button type="button" role="option" tabIndex={-1} id={`mention-${index}`} key={agent.id} aria-selected={activeAgent === index} onMouseDown={e=>e.preventDefault()} onClick={()=>chooseAgent(agent)}><Bot size={18}/><span><strong>{agent.name}</strong><small>{agent.position || "Agent"}</small></span><kbd>↵</kbd></button>)}
         {!agentMatches.length && <p className="mention-empty" role="status">No matching agents in this room.</p>}
       </div>}
       {!mentionOpen && matches.length > 0 && (

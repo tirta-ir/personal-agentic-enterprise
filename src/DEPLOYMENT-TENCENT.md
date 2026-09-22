@@ -9,9 +9,9 @@ No public HTTPS hostname or reverse-proxy route is configured for this deploymen
 
 - Application source: `codex/decentralized-workspaces`, including searchable invitations,
   worker catalog preservation, embedded replies and direct reply routing.
-- Platform image: `agentic-enterprise:runtime-browser-20260922` (Linux x86_64), including
-  runtime-first setup, runtime metadata editing, custom Codex catalogs, human-only `/btw` and worker folder browsing.
-- Image: `sha256:4410a2ebd68fd29ce7cf430c6929150559ac9ef1bef3729a77f731e7ef0171a7`.
+- Platform image: `agentic-enterprise:mentions-final-20260922` (Linux x86_64), including
+  runtime-first setup, runtime metadata editing, custom Codex catalogs, human-only `/btw`, worker folder browsing and named mention links.
+- Image: `sha256:b9f59f4961abcc2af61ea955516caa2f395bd9ced9a1a4262ac6a2cfa2309115`.
 - Synapse: `ghcr.io/element-hq/synapse:v1.161.0`; server name `agentic.tencent`.
 - Deployment directory: `/home/ubuntu/agentic-enterprise`.
 - Managed service: `agentic-enterprise.service`, enabled at boot and ordered after Docker
@@ -249,3 +249,22 @@ project creation, reload persistence, runtime switching, bounded navigation,
 unauthorized/out-of-root rejection and 390 px dialog bounds. Browser errors: zero.
 Both original workspaces retained their agents, groups and saved layouts; the
 verification project was removed. Final proof: `org/verification-runtime-browser-20260922/final/proof.json`.
+
+
+Named mentions were deployed on 2026-09-22 as a frontend-only image layer over
+`agentic-enterprise:runtime-browser-20260922`; backend and both worker binaries are
+unchanged. Build: `npm --prefix src/frontend run build`, then copy its `dist/` into
+`/app/frontend/` in the existing image. Rollback: `compose.before-mentions.yaml`.
+The picker inserts assigned names, and message rendering turns existing name/ID
+mentions into blue profile links while preserving code and existing Markdown links.
+Verification command: `node src/scripts/verify-mentions.mjs credentials.json output-dir
+workspace-id runtime-id workdir`. Private evidence: `org/verification-mentions-20260922/`.
+
+Live verification passed: mouse and keyboard insertion, real named-agent routing
+(run `7ec6a9bb-5ea5-4491-b589-39c4e017992c`, succeeded), blue styling, profile navigation,
+reload, legacy ID mentions and preservation of code/email/existing links. Current
+agents take precedence over deleted agents sharing a name. Finance Operations was
+also checked without sending a message: selecting B. Riemann inserted its assigned
+name. Frontend lint/typecheck/build passed, browser errors were zero, and both
+workspaces retained their original agents, groups and layouts. Final evidence:
+`org/verification-mentions-20260922/verified/proof.json`.
