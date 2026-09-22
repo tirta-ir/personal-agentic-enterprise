@@ -234,9 +234,21 @@ pub fn validate(app: &App, w: &Workspace) -> Result<Workspace> {
         w.ssh_host.is_none(),
         "Choose either a runtime or an SSH workstation"
     );
+    ensure!(!w.path.trim().is_empty(), "Workdir required");
+    let mut validated: Workspace =
+        serde_json::from_value(inspect(app, id, &w.path, "probe", "workspace")?)?;
+    validated.runtime_id = Some(id.clone());
+    Ok(validated)
+}
+pub fn directories(app: &App, id: &str, path: &str) -> Result<crate::workspaces::DirectoryView> {
+    serde_json::from_value(inspect(app, id, path, "directories", "directories")?)
+        .map_err(Into::into)
+}
+fn inspect(app: &App, id: &str, path: &str, operation: &str, key: &str) -> Result<Value> {
+    security::validate_id(id)?;
     ensure!(
-        !w.path.trim().is_empty() && w.path.len() <= 4096 && !w.path.contains('\0'),
-        "Workdir required"
+        path.len() <= 4096 && !path.contains('\0'),
+        "Invalid folder path"
     );
     let values = list(app)?;
     ensure!(
@@ -253,7 +265,7 @@ pub fn validate(app: &App, w: &Workspace) -> Result<Workspace> {
     app.store.write(|db| {
         db.execute(
             "INSERT INTO fleet_jobs(id,runtime,state,request) VALUES(?,?,'queued',?)",
-            params![job, id, json!({"op":"probe","path":w.path}).to_string()],
+            params![job, id, json!({"op":operation,"path":path}).to_string()],
         )?;
         Ok(())
     })?;
@@ -276,10 +288,8 @@ pub fn validate(app: &App, w: &Workspace) -> Result<Workspace> {
             for frame in frames {
                 let f: Frame = serde_json::from_str(&frame)?;
                 let v: Value = serde_json::from_str(&f.line)?;
-                if v.get("workspace").is_some() {
-                    let mut validated: Workspace = serde_json::from_value(v["workspace"].clone())?;
-                    validated.runtime_id = Some(id.clone());
-                    return Ok(validated);
+                if let Some(result) = v.get(key) {
+                    return Ok(result.clone());
                 }
                 if v["type"] == "error" {
                     anyhow::bail!(
@@ -288,14 +298,14 @@ pub fn validate(app: &App, w: &Workspace) -> Result<Workspace> {
                     );
                 }
             }
-            anyhow::bail!("Runtime probe ended without a validated workdir");
+            anyhow::bail!("Runtime inspection ended without a result");
         }
         if deadline.elapsed() > Duration::from_secs(30) {
             app.store.write(|db| {
                 db.execute("UPDATE fleet_jobs SET state='cancelled' WHERE id=?", [&job])?;
                 Ok(())
             })?;
-            anyhow::bail!("Runtime did not validate the workdir within 30 seconds");
+            anyhow::bail!("Runtime did not respond within 30 seconds");
         }
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -438,7 +448,7 @@ pub fn worker_request(
                     let mut response=json!({"job":null});
                     if let Some((job,request))=job {
                         let request:Value=serde_json::from_str(&request)?;
-                        let active=if request["op"]=="probe"{true}else{let run:crate::model::Run=store::get(db,"runs",request["run_id"].as_str().context("Run required")?)?;["starting","running"].contains(&run.status.as_str())};
+                        let active=if matches!(request["op"].as_str(),Some("probe" | "directories")){true}else{let run:crate::model::Run=store::get(db,"runs",request["run_id"].as_str().context("Run required")?)?;["starting","running"].contains(&run.status.as_str())};
                         if !active{db.execute("UPDATE fleet_jobs SET state='cancelled' WHERE id=?",[&job])?;}
                         else {db.execute("UPDATE fleet_jobs SET state='claimed' WHERE id=? AND state='queued'",[&job])?;response["job"]=json!({"id":job,"request":request});}
                     }
@@ -448,7 +458,7 @@ pub fn worker_request(
                     let job=input["job"].as_str().context("Job required")?;
                     let(state,request):(String,String)=db.query_row("SELECT state,request FROM fleet_jobs WHERE id=? AND runtime=?",[job,&id],|r|Ok((r.get(0)?,r.get(1)?))).context("Job is not owned by this runtime")?;
                     let request:Value=serde_json::from_str(&request)?;
-                    let active=if request["op"]=="probe"{true}else{let run:crate::model::Run=store::get(db,"runs",request["run_id"].as_str().context("Run required")?)?;["starting","running"].contains(&run.status.as_str())};
+                    let active=if matches!(request["op"].as_str(),Some("probe" | "directories")){true}else{let run:crate::model::Run=store::get(db,"runs",request["run_id"].as_str().context("Run required")?)?;["starting","running"].contains(&run.status.as_str())};
                     let frames=input["frames"].as_array().context("Frames required")?;ensure!(frames.len()<=256,"Too many frames");
                     let offset=input["offset"].as_i64().context("Offset required")?;ensure!(offset>=0,"Invalid offset");
                     let expected:i64=db.query_row("SELECT COALESCE(MAX(seq)+1,0) FROM fleet_frames WHERE job=?",[job],|r|r.get(0))?;ensure!(offset<=expected,"Outbox gap; resend unacknowledged frames");
@@ -737,6 +747,21 @@ fn execute_job(
     outbox: &Path,
     cancel: &AtomicBool,
 ) -> Result<()> {
+    if request["op"] == "directories" {
+        let view = crate::workspaces::browse_runtime(
+            root,
+            directory,
+            request["path"].as_str().context("Folder path required")?,
+        )?;
+        append(
+            &outbox.join("frames.jsonl"),
+            &Frame {
+                stderr: false,
+                line: json!({"directories":view}).to_string(),
+            },
+        )?;
+        return Ok(());
+    }
     let path = request["path"].as_str().context("Workdir required")?;
     let workspace = security::validate_workspace(path)?;
     let canonical = Path::new(&workspace.canonical_path);

@@ -1934,7 +1934,7 @@ function AgentInspector({
             <p className="hint">Runtime: {runtimes.find(runtime => runtime.id === runtimeId)?.name ?? (runtimeId ? "Selected in Profile" : "Controller / SSH")}. <button type="button" onClick={() => onSectionChange("Profile")}>Change in Profile</button></p>
             {controllerAccess && !runtimeId && <WorkstationSelect id="workstation-host" value={sshHost} workstations={workstations} onChange={host => { setSshHost(host); setPath(""); setProbe(""); }}/> }
             <Label htmlFor="workdir-path">Absolute directory path</Label>
-            <Button variant="outline" disabled={!controllerAccess || !!runtimeId || (remote && !sshHost.trim())} onClick={() => setFolderPicker(true)}>
+            <Button variant="outline" disabled={!runtimeId && (!controllerAccess || (remote && !sshHost.trim()))} onClick={() => setFolderPicker(true)}>
               <FolderOpen size={16} />
               Browse folders
             </Button>
@@ -2237,6 +2237,7 @@ function AgentInspector({
       </div>
       {folderPicker && (
         <FolderPicker
+          runtimeId={runtimeId || undefined}
           initialPath={path}
           sshHost={remote ? sshHost.trim() : undefined}
           onSelect={(selected) => {

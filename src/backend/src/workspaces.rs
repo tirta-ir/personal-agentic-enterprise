@@ -74,6 +74,48 @@ pub fn browse(app: &App, requested: &str) -> Result<DirectoryView> {
         name: "Filesystem".into(),
         path: "/".into(),
     });
+    listing(&path, path.parent().map(display), roots)
+}
+
+pub fn browse_runtime(root: &Path, state: &Path, requested: &str) -> Result<DirectoryView> {
+    let path = if requested.is_empty() {
+        root.to_path_buf()
+    } else {
+        PathBuf::from(requested)
+    };
+    ensure!(path.is_absolute(), "Select an absolute folder path");
+    let path = path
+        .canonicalize()
+        .context("Folder is unavailable or access was denied")?;
+    ensure!(
+        path.starts_with(root),
+        "Folder is outside the runtime's registered root"
+    );
+    ensure!(
+        !path.starts_with(state)
+            && !path.components().any(|c| {
+                let name = c.as_os_str().to_string_lossy().to_lowercase();
+                name == ".state" || name == ".git" || name.starts_with(".env")
+            }),
+        "Internal or sensitive folders cannot be browsed"
+    );
+    let mut view = listing(
+        &path,
+        path.parent().filter(|p| p.starts_with(root)).map(display),
+        vec![Folder {
+            name: "Runtime root".into(),
+            path: display(root),
+        }],
+    )?;
+    view.folders.retain(|f| {
+        !Path::new(&f.path)
+            .canonicalize()
+            .is_ok_and(|p| p.starts_with(state))
+    });
+    Ok(view)
+}
+
+fn listing(path: &Path, parent: Option<String>, roots: Vec<Folder>) -> Result<DirectoryView> {
     let mut folders = Vec::new();
     // ponytail: cap scans at 10,000 entries; paginate if very large folders become common.
     for (count, entry) in std::fs::read_dir(&path)
@@ -99,8 +141,58 @@ pub fn browse(app: &App, requested: &str) -> Result<DirectoryView> {
     folders.sort_by_cached_key(|f| f.name.to_lowercase());
     Ok(DirectoryView {
         path: display(&path),
-        parent: path.parent().map(display),
+        parent,
         roots,
         folders,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn runtime_browser_stays_inside_registered_root() -> anyhow::Result<()> {
+        let temp = tempfile::tempdir()?;
+        let root = temp.path().join("root");
+        let state = root.join("worker-state");
+        let project = root.join("project");
+        for path in [
+            &state,
+            &project,
+            &root.join(".state"),
+            &root.join(".env-private"),
+        ] {
+            std::fs::create_dir_all(path)?;
+        }
+        let root = root.canonicalize()?;
+        let state = state.canonicalize()?;
+        let view = super::browse_runtime(&root, &state, "")?;
+        assert!(view.parent.is_none());
+        assert_eq!(view.roots.len(), 1);
+        assert_eq!(
+            view.folders
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["project"]
+        );
+        let child = super::browse_runtime(&root, &state, project.to_str().unwrap())?;
+        assert_eq!(child.parent, Some(view.path));
+        for path in [
+            temp.path().to_path_buf(),
+            state.clone(),
+            root.join(".state"),
+            root.join(".env-private"),
+            root.join("missing"),
+        ] {
+            assert!(super::browse_runtime(&root, &state, path.to_str().unwrap()).is_err());
+        }
+        assert!(super::browse_runtime(&root, &state, "relative").is_err());
+        #[cfg(unix)]
+        {
+            let link = root.join("escape");
+            std::os::unix::fs::symlink(temp.path(), &link)?;
+            assert!(super::browse_runtime(&root, &state, link.to_str().unwrap()).is_err());
+        }
+        Ok(())
+    }
 }

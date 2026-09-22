@@ -9,9 +9,9 @@ No public HTTPS hostname or reverse-proxy route is configured for this deploymen
 
 - Application source: `codex/decentralized-workspaces`, including searchable invitations,
   worker catalog preservation, embedded replies and direct reply routing.
-- Platform image: `agentic-enterprise:luna-human-btw-20260922` (Linux x86_64), including
-  runtime-first setup, runtime metadata editing, custom Codex catalogs and human-only `/btw`.
-- Image: `sha256:7a155a29b3903b3820ba8e889876b7aa7ce83840d43fba1f266df8fde680b624`.
+- Platform image: `agentic-enterprise:runtime-browser-20260922` (Linux x86_64), including
+  runtime-first setup, runtime metadata editing, custom Codex catalogs, human-only `/btw` and worker folder browsing.
+- Image: `sha256:4410a2ebd68fd29ce7cf430c6929150559ac9ef1bef3729a77f731e7ef0171a7`.
 - Synapse: `ghcr.io/element-hq/synapse:v1.161.0`; server name `agentic.tencent`.
 - Deployment directory: `/home/ubuntu/agentic-enterprise`.
 - Managed service: `agentic-enterprise.service`, enabled at boot and ordered after Docker
@@ -222,3 +222,30 @@ The initial verification's read-only profile could not call `ask_user` because
 native Codex required approval while the profile uses `approval_policy=never`;
 that separate limitation remains. The final authorization probe directly exercised
 the real MCP endpoint during a native Luna run, without mocks or permission changes.
+
+
+Registered-runtime folder browsing was deployed on 2026-09-22 to the controller,
+Windows worker and Mac Docker worker. The shared picker sends directory requests
+through the existing outbound worker queue. Only workspace owners can browse;
+runtime ownership, online status, canonical root containment and protected state
+folders are checked. Controller filesystem restrictions remain unchanged.
+The Project Browse button and agent Workdir Browse folders button now support
+registered runtimes. Selecting a different project runtime clears the old path.
+
+Verification: `node src/scripts/verify-runtime-browser.mjs credentials.json output-dir
+workspace-id windows-runtime-id mac-runtime-id`. Evidence is retained under
+`org/verification-runtime-browser-20260922/` (private). Backend checks: 67 tests pass;
+frontend lint/typecheck/build pass. The browser test creates and removes one empty
+verification project without running agents or changing existing workdirs.
+
+Rollback: Tencent `compose.before-runtime-browser.yaml`, Mac worker
+`/Users/punya-tirta/ae-tencent-worker/compose.before-runtime-browser.yaml`, and the
+Windows worker backup in the private verification directory. Mac worker image:
+`ae-tencent-worker:runtime-browser-20260922`; Windows executable SHA-256:
+`F1611DBBC8C9B91D422ACF97CC8E97D264734F3E3552D4D78190237D692330E5`.
+
+The live browser check passed on both TIRTA-PC and TIRTA-MAC: folder selection,
+project creation, reload persistence, runtime switching, bounded navigation,
+unauthorized/out-of-root rejection and 390 px dialog bounds. Browser errors: zero.
+Both original workspaces retained their agents, groups and saved layouts; the
+verification project was removed. Final proof: `org/verification-runtime-browser-20260922/final/proof.json`.

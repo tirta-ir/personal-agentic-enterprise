@@ -594,6 +594,27 @@ impl Platform {
                 .into_response());
             }
             if let Some(id) = path.strip_prefix("/api/runtimes/") {
+                if let Some(id) = id.strip_suffix("/directories")
+                    && method == Method::POST
+                {
+                    let input: Value = serde_json::from_slice(
+                        &to_bytes(req.into_body(), 16384)
+                            .await
+                            .map_err(anyhow::Error::from)?,
+                    )
+                    .map_err(anyhow::Error::from)?;
+                    let folder = input["path"]
+                        .as_str()
+                        .context("Folder path required")?
+                        .to_owned();
+                    let id = id.to_owned();
+                    let result = tokio::task::spawn_blocking(move || {
+                        crate::fleet::directories(&app, &id, &folder)
+                    })
+                    .await
+                    .map_err(anyhow::Error::from)??;
+                    return Ok(axum::Json(result).into_response());
+                }
                 if method == Method::PUT {
                     let input: crate::fleet::RuntimeMetadata = serde_json::from_slice(
                         &to_bytes(req.into_body(), 16384)

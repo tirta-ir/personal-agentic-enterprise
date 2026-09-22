@@ -71,11 +71,11 @@ export function GroupDialog({ controllerAccess, group, agents, workstations, onC
           <Input id="group-description" value={draft.description} disabled={busy || closed}
             onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
           {draft.project && <>
-            <RuntimeSelect value={draft.project.workdir.runtime_id ?? ""} onChange={id=>setDraft({...draft,project:{...draft.project!,workdir:{...draft.project!.workdir,runtime_id:id||undefined,ssh_host:null,path:"",canonical_path:""}}})}/>
+            <RuntimeSelect disabled={busy || closed} allowController={controllerAccess} required={!controllerAccess} value={draft.project.workdir.runtime_id ?? ""} onChange={id=>setDraft({...draft,project:{...draft.project!,workdir:{...draft.project!.workdir,runtime_id:id||undefined,ssh_host:null,path:"",canonical_path:""}}})}/>
             {controllerAccess && !draft.project.workdir.runtime_id && <WorkstationSelect id="project-host" value={draft.project.workdir.ssh_host ?? ""} workstations={workstations} disabled={busy || closed}
               onChange={host => setDraft({ ...draft, project: { ...draft.project!, workdir: { ...draft.project!.workdir, ssh_host: host || null, path: "", canonical_path: "", git_root: null } } })}/> }
             <Label htmlFor="project-workdir">Project workdir</Label>
-            <div className="project-workdir-row"><Input id="project-workdir" required value={draft.project.workdir.path} disabled={busy||closed} onChange={e=>setDraft({...draft,project:{...draft.project!,workdir:{...draft.project!.workdir,path:e.target.value}}})}/><Button type="button" variant="outline" disabled={busy||closed||!!draft.project.workdir.runtime_id||!controllerAccess} onClick={()=>setFolderOpen(true)}><FolderOpen size={15}/>Browse</Button></div>
+            <div className="project-workdir-row"><Input id="project-workdir" required value={draft.project.workdir.path} disabled={busy||closed} onChange={e=>setDraft({...draft,project:{...draft.project!,workdir:{...draft.project!.workdir,path:e.target.value}}})}/><Button type="button" variant="outline" disabled={busy||closed||(!draft.project.workdir.runtime_id&&!controllerAccess)} onClick={()=>setFolderOpen(true)}><FolderOpen size={15}/>Browse</Button></div>
             <p className="hint">Every project run uses this workdir and workstation, overriding each agent's default. Sessions remain separate from other chats.</p>
             <p className="hint">{group.id ? "Manage agents and reporting lines in the project's Structure tab." : "Your project starts with an empty team. Next, configure agents in the Structure tab."}</p>
           </>}
@@ -89,7 +89,7 @@ export function GroupDialog({ controllerAccess, group, agents, workstations, onC
           {!group.deleted_at && <Button variant="destructive" disabled={busy} onClick={() => setConfirm("delete")}><Trash2 size={15} /> Delete group</Button>}
         </div>}
       </>}
-      {folderOpen&&draft.project&&<FolderPicker initialPath={draft.project.workdir.path} sshHost={draft.project.workdir.ssh_host??undefined} onClose={()=>setFolderOpen(false)} onSelect={path=>{setDraft({...draft,project:{...draft.project!,workdir:{...draft.project!.workdir,path}}});setFolderOpen(false);}}/>}
+      {folderOpen&&draft.project&&<FolderPicker runtimeId={draft.project.workdir.runtime_id??undefined} initialPath={draft.project.workdir.path} sshHost={draft.project.workdir.ssh_host??undefined} onClose={()=>setFolderOpen(false)} onSelect={path=>{setDraft({...draft,project:{...draft.project!,workdir:{...draft.project!.workdir,path}}});setFolderOpen(false);}}/>}
     </DialogContent>
   </Dialog>;
 }

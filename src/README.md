@@ -16,7 +16,7 @@ On the action table, click a data-column heading to toggle ascending/descending 
 
 ## Projects, actions and collaboration
 
-- Use **+ → Create project** beside Groups. Choose a name and a local or saved remote workdir. Creation leaves the team empty and opens **Structure** immediately. Add organization agents or create dedicated project agents and set reporting lines there; the create/edit project dialog no longer edits the team. Projects use a folder icon and `/projects/<name--id>/...` URLs. Chat, Knowledge, Runs and independent side conversations use the existing group machinery.
+- Use **+ → Create project** beside Groups. Choose a name and registered runtime, then use **Browse** to select a workdir on that machine. Bootstrap owners can also use controller/SSH workdirs. Creation leaves the team empty and opens **Structure** immediately. Add organization agents or create dedicated project agents and set reporting lines there; the create/edit project dialog no longer edits the team. Projects use a folder icon and `/projects/<name--id>/...` URLs. Chat, Knowledge, Runs and independent side conversations use the existing group machinery.
 - **Structure → Add agent → Project** creates a dedicated agent. It also appears in Organization. Project reporting lines are separate from organization lines: a dedicated agent reports globally to its project manager only when that manager is an organization agent; otherwise it reports to the owner. Normal agents keep their global reporting lines.
 - Every project run, including delegates and side chats, snapshots the project's workdir and host instead of the agent's default. Dedicated agents also inherit it in their profile terminal and Skills tab. A normal agent retains its own default outside the project. Models/credentials resolve on the actual execution host; leave model/effort blank to use that host's defaults.
 - Open **Action board** in the sidebar for the organization-wide **Table / Calendar** views, or **Actions** inside a project/group for a filtered view. Select a PIC and choose **Save to backlog**, a future **planned start**, or **Run now**. Blank planned start never invokes work. Dates display in the browser's local timezone and persist as UTC. Calendar leaves unscheduled work in a separate backlog.
@@ -343,3 +343,16 @@ Sessions are keyed by group, side-chat ID (empty for main), agent and attached w
 `node tests/native-smoke.mjs chat-composer` uses the same fresh disposable-instance setup. It checks automatic height growth/shrink/capping, multi-agent mentions through real Codex replies, the shared side composer, keyboard-accessible participant dialog, scoped membership and narrow layouts.
 
 Verify this flow against a fresh disposable organization using `node tests/native-smoke.mjs workspace-navigation` with `AE_TEST_ORG` and `AE_TEST_URL`. It exercises real section CRUD/sorting/dragging, archive restoration, hidden deleted links, restart persistence, 320/390/768 px layouts and touch menus. One real read-only Codex run verifies recorded model badges and spinner-to-green completion; an invalid test-workdir dotenv verifies the failure state without a second provider call.
+
+
+Registered-runtime folder browsing uses the existing outbound worker connection;
+no inbound worker port or controller filesystem access is required. Project creation,
+project settings and agent Workdir settings use the same picker. Browsing starts at
+the registered root, cannot navigate above it, and rejects internal worker-state
+folders. Select a folder to populate the form; saving still validates it through
+the worker. Update both the controller and workers to use this operation.
+
+Run `node src/scripts/verify-runtime-browser.mjs credentials.json output-dir
+workspace-id windows-runtime-id mac-runtime-id` for the live browser regression.
+It creates/removes one temporary project, checks both workers, reload persistence,
+mobile layout and directory authorization, without starting an agent run.
