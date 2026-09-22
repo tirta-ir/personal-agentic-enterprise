@@ -85,12 +85,12 @@ pub(crate) fn parse(config: &str, cache: &str) -> Result<CodexSettings> {
     } else {
         configured_model
     };
-    let selected = catalog.models.iter().find(|m| m.slug == model).context(
-        "Your configured Codex model is absent from its catalog. Refresh the catalog in Codex.",
-    )?;
+    let selected = catalog.models.iter().find(|m| m.slug == model);
     let configured_reasoning = setting("model_reasoning_effort");
     let reasoning = if configured_reasoning.is_empty() {
-        selected.default_reasoning_level.clone()
+        selected
+            .map(|m| m.default_reasoning_level.clone())
+            .unwrap_or_default()
     } else {
         configured_reasoning
     };
@@ -139,5 +139,17 @@ mod tests {
         );
         assert!(settings.resolve("a", "ultra").is_err());
         assert!(settings.resolve("hidden", "low").is_err());
+    }
+
+    #[test]
+    fn unavailable_default_does_not_hide_available_models() {
+        let catalog = r#"{"models":[{"slug":"available","display_name":"Available","visibility":"list","default_reasoning_level":"low","supported_reasoning_levels":[{"effort":"low","description":"Fast"}]}]}"#;
+        let settings = super::parse("model = 'unavailable'", catalog).unwrap();
+        assert_eq!(settings.model, "unavailable");
+        assert!(settings.resolve("", "").is_err());
+        assert_eq!(
+            settings.resolve("available", "").unwrap(),
+            ("available".into(), "low".into())
+        );
     }
 }
