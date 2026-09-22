@@ -806,6 +806,9 @@ fn execute_job(
     }
     if !opencode {
         args.push("--ignore-user-config".into());
+        if let Some(catalog) = crate::codex_settings::catalog_argument()? {
+            args.extend(["-c".into(), catalog]);
+        }
     }
     #[cfg(windows)]
     if !opencode {

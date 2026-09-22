@@ -2,7 +2,7 @@
 // Only model metadata is exposed; credentials, prompts and other settings stay local.
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use ts_rs::TS;
 
 #[derive(Clone, Deserialize, Serialize, TS)]
@@ -48,12 +48,45 @@ pub fn home() -> Result<PathBuf> {
         .context("Cannot locate your Codex settings directory")
 }
 
+// Honor the native catalog override instead of silently reverting to its refreshable cache.
+fn custom_catalog(home: &Path, config: &str) -> Result<Option<PathBuf>> {
+    let config: toml::Value = toml::from_str(config).context("Cannot read Codex config.toml")?;
+    match config.get("model_catalog_json") {
+        None => Ok(None),
+        Some(value) => {
+            let path = value
+                .as_str()
+                .filter(|value| !value.trim().is_empty())
+                .context("model_catalog_json must be a nonempty path")?;
+            Ok(Some(home.join(path)))
+        }
+    }
+}
+
 pub fn read() -> Result<CodexSettings> {
+    read_from(&home()?)
+}
+
+fn read_from(home: &Path) -> Result<CodexSettings> {
+    let config = crate::security::read_optional(&home.join("config.toml"))?;
+    let path = custom_catalog(home, &config)?.unwrap_or_else(|| home.join("models_cache.json"));
+    let cache = std::fs::read_to_string(&path)
+        .with_context(|| format!("Codex model catalog is unavailable at {}. Check model_catalog_json or refresh the signed-in CLI catalog.", path.display()))?;
+    parse(&config, &cache)
+}
+
+// Agent sessions ignore unrelated user config; pass only the catalog override explicitly.
+pub fn catalog_argument() -> Result<Option<String>> {
     let home = home()?;
     let config = crate::security::read_optional(&home.join("config.toml"))?;
-    let cache = std::fs::read_to_string(home.join("models_cache.json"))
-        .context("Codex model catalog is unavailable. Open the signed-in Codex CLI once, then refresh models.")?;
-    parse(&config, &cache)
+    custom_catalog(&home, &config)?
+        .map(|path| {
+            Ok(format!(
+                "model_catalog_json={}",
+                serde_json::to_string(&path)?
+            ))
+        })
+        .transpose()
 }
 
 pub(crate) fn parse(config: &str, cache: &str) -> Result<CodexSettings> {
@@ -128,6 +161,28 @@ impl CodexSettings {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn custom_catalog_is_used_and_invalid_override_does_not_fall_back() -> anyhow::Result<()> {
+        let home = tempfile::tempdir()?;
+        let cache = r#"{"models":[{"slug":"cached","display_name":"Cached","visibility":"list","default_reasoning_level":"low","supported_reasoning_levels":[{"effort":"low","description":"Fast"}]}]}"#;
+        std::fs::write(home.path().join("models_cache.json"), cache)?;
+        std::fs::write(
+            home.path().join("custom.json"),
+            cache.replace("cached", "custom"),
+        )?;
+        std::fs::write(
+            home.path().join("config.toml"),
+            "model_catalog_json = 'custom.json'\nmodel = 'custom'",
+        )?;
+        assert_eq!(super::read_from(home.path())?.resolve("", "")?.0, "custom");
+        std::fs::remove_file(home.path().join("custom.json"))?;
+        assert!(super::read_from(home.path()).is_err());
+        assert!(super::custom_catalog(home.path(), "model_catalog_json = 5").is_err());
+        std::fs::write(home.path().join("config.toml"), "")?;
+        assert_eq!(super::read_from(home.path())?.models[0].slug, "cached");
+        Ok(())
+    }
+
     #[test]
     fn respects_profile_defaults_and_model_specific_efforts() {
         let catalog = r#"{"models":[{"slug":"a","display_name":"A","visibility":"list","default_reasoning_level":"low","supported_reasoning_levels":[{"effort":"low","description":"Fast"},{"effort":"max","description":"Deep"}]},{"slug":"hidden","display_name":"Hidden","visibility":"hide","default_reasoning_level":"low","supported_reasoning_levels":[]}]}"#;

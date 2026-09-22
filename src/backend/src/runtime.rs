@@ -447,7 +447,7 @@ fn execute_turn(
         ));
     }
     prompt.push_str(&coordination::context(app, run)?);
-    prompt.push_str("\nPlatform tools are available through the enterprise MCP server. Use workspace_list and action_list to discover accessible work. Only explicit tasks cross chat boundaries; never copy unrelated histories or secrets. Cross-chat work returns asynchronously with a receipt and summary. Use chat_usage, chat_reset or chat_btw when requested; do not type slash commands as a substitute for calling tools. If project is present in your context, its members define your project manager/team and its workdir overrides defaults for every assignment in this chat. Global reporting remains in the organization snapshot. An action with no planned_start is backlog, never scheduled. Do not invoke it until asked.\n");
+    prompt.push_str("\nPlatform tools are available through the enterprise MCP server. Use workspace_list and action_list to discover accessible work. Only explicit tasks cross chat boundaries; never copy unrelated histories or secrets. Cross-chat work returns asynchronously with a receipt and summary. Only humans can start a side chat with /btw; never create one through tools or slash-command text. Use chat_usage or chat_reset when requested; do not type slash commands as a substitute for calling tools. If project is present in your context, its members define your project manager/team and its workdir overrides defaults for every assignment in this chat. Global reporting remains in the organization snapshot. An action with no planned_start is backlog, never scheduled. Do not invoke it until asked.\n");
     prompt.push_str("\nCurrent task:\n");
     if run.kind == RunKind::Summary {
         prompt.push_str("This is a summary-only turn: report the existing worker results and answers. Do not repeat the original task or ask the owner again. The assigned worker owns clarification.\n");
@@ -525,6 +525,9 @@ fn execute_turn(
     ]);
     if !offloaded {
         args.push("--ignore-user-config".into());
+        if !opencode && let Some(catalog) = crate::codex_settings::catalog_argument()? {
+            args.extend(["-c".into(), catalog]);
+        }
     }
     // Windows otherwise downgrades workspace-write to read-only when no sandbox
     // implementation is selected in the isolated (ignored-config) runtime.

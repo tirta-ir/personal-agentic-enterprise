@@ -918,7 +918,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                             </a>;
                           })}
                         </div>
-                        {!sideChatId && m.side_chat_id === m.id && (
+                        {!sideChatId && m.command === "btw" && m.side_chat_id === m.id && (
                           <Button variant="outline" size="sm" onClick={() => go({ sideChatId: m.id })}>Open side chat</Button>
                         )}
                         {m.usage_report && (

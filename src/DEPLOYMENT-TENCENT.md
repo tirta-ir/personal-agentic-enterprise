@@ -9,9 +9,9 @@ No public HTTPS hostname or reverse-proxy route is configured for this deploymen
 
 - Application source: `codex/decentralized-workspaces`, including searchable invitations,
   worker catalog preservation, embedded replies and direct reply routing.
-- Platform image: `agentic-enterprise:runtime-setup-final-20260922` (Linux x86_64), including
-  runtime-first agent creation, persisted Profile runtime selection and runtime metadata editing.
-- Image: `sha256:69352f782bb787be85d9471e7041de78fa183911b62a2e07cc74a2e22e4982f5`.
+- Platform image: `agentic-enterprise:luna-human-btw-20260922` (Linux x86_64), including
+  runtime-first setup, runtime metadata editing, custom Codex catalogs and human-only `/btw`.
+- Image: `sha256:7a155a29b3903b3820ba8e889876b7aa7ce83840d43fba1f266df8fde680b624`.
 - Synapse: `ghcr.io/element-hq/synapse:v1.161.0`; server name `agentic.tencent`.
 - Deployment directory: `/home/ubuntu/agentic-enterprise`.
 - Managed service: `agentic-enterprise.service`, enabled at boot and ordered after Docker
@@ -194,3 +194,31 @@ calls. Backend tests: 65 passed; frontend lint/typecheck/build passed. Evidence:
 `org/verification-runtime-setup-20260922/browser/` (private). Rollback:
 `compose.before-runtime-setup.yaml`. Machine-reported root, OS and harness catalogs
 remain read-only; edit those on the worker itself.
+
+
+Luna catalog and human-only side chats were deployed on 2026-09-22. TIRTA-PC uses
+its native `model_catalog_json` override, populated with Luna metadata from the
+installed Codex 0.155.0 bundled catalog. The platform reads that override and passes
+it explicitly to isolated agent executions. All eleven existing Luna selections
+remain unchanged; no replacement model was assigned. Refresh the custom catalog
+when the installed model catalog changes.
+
+`python src/scripts/verify-luna-human-btw.py credentials.json output-dir workspace-id
+runtime-id absolute-workdir` verifies a real Luna execution, native catalog arguments,
+absence of `chat_btw` from MCP discovery, rejection of cached direct calls and
+cross-chat `/btw` injection, and successful authenticated human `/btw`. The MCP probe
+uses only its temporary run's credential on the server; it never prints the token.
+Temporary agents/groups are soft-deleted afterward, preserving original records.
+Evidence: `org/verification-luna-human-btw-20260922/` (private). Backend tests: 66
+passed; frontend lint/typecheck/build passed. Finance Operations returned HTTP 200
+with no browser errors; historical side chats remain accessible. Previous failed
+runs remain in history and were not automatically replayed.
+
+Rollback configuration: `compose.before-luna-human-btw.yaml`. The prior Windows
+worker executable and native Codex configuration are retained in the private
+verification directory. Its updated worker executable SHA-256 is
+`AC6DC18C3C8299F12560732D94B6543883F83B5727AF3AC3B32DB536CD208DB0`.
+The initial verification's read-only profile could not call `ask_user` because
+native Codex required approval while the profile uses `approval_policy=never`;
+that separate limitation remains. The final authorization probe directly exercised
+the real MCP endpoint during a native Luna run, without mocks or permission changes.

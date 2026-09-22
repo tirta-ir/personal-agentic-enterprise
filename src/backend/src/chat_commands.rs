@@ -161,6 +161,26 @@ mod tests {
             artifacts: vec![],
         };
         let send = |value| db.write(|conn| crate::api::submit_message(conn, value, None));
+        assert!(
+            db.write(|conn| crate::api::submit_message_as(
+                conn,
+                input("agent-side", "/btw", None),
+                None,
+                "ceo"
+            ))
+            .is_err()
+        );
+        assert!(db.list::<Message>("messages")?.is_empty());
+        let human = db.write(|conn| {
+            crate::api::submit_message_as(
+                conn,
+                input("human-side", "/btw", None),
+                None,
+                "@human:example.org",
+            )
+        })?;
+        assert_eq!(human.sender, "@human:example.org");
+        assert_eq!(human.command.as_deref(), Some("btw"));
         let root = send(input("side", "/btw", None))?;
         assert_eq!(root.side_chat_id.as_deref(), Some("side"));
         assert!(db.list::<Run>("runs")?.is_empty());

@@ -170,7 +170,7 @@ fn ingest(platform: &Platform, room: &Room, event: OriginalSyncRoomMessageEvent)
                 artifacts: vec![],
             };
             app.store.write(|tx| {
-                let mut message = crate::api::submit_message(tx, input, None)?;
+                let mut message = crate::api::submit_message_as(tx, input, None, &user)?;
                 message.sender = user;
                 store::put(tx, "messages", &message.id, &message)?;
                 tx.execute(

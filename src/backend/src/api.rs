@@ -1235,7 +1235,11 @@ async fn send_message(State(app): State<App>, Json(input): Json<SendInput>) -> A
                 "Message ID belongs to another sender"
             );
         }
-        let mut message = submit_message(tx, input, None)?;
+        let actor = app
+            .identity
+            .as_ref()
+            .map_or("owner", |identity| identity.user.as_str());
+        let mut message = submit_message_as(tx, input, None, actor)?;
         if let Some(identity) = &app.identity {
             message.sender = identity.user.clone();
             store::put(tx, "messages", &message.id, &message)?;
@@ -1293,8 +1297,17 @@ pub(crate) fn existing_message(
 
 pub(crate) fn submit_message(
     tx: &rusqlite::Connection,
+    input: SendInput,
+    schedule_id: Option<String>,
+) -> Result<Message> {
+    submit_message_as(tx, input, schedule_id, "owner")
+}
+
+pub(crate) fn submit_message_as(
+    tx: &rusqlite::Connection,
     mut input: SendInput,
     schedule_id: Option<String>,
+    actor: &str,
 ) -> Result<Message> {
     if input.recipients.is_empty() {
         let group: Group = store::get(tx, "groups", &input.group_id)?;
@@ -1308,6 +1321,10 @@ pub(crate) fn submit_message(
     let starts_side =
         schedule_id.is_none() && crate::chat_commands::parse(&input.body)? == Some("btw");
     if starts_side {
+        ensure!(
+            actor == "owner" || actor.starts_with('@'),
+            "Only humans can start side chats with /btw"
+        );
         ensure!(
             input.side_chat_id.is_none(),
             "Return to the main chat to start another side chat"
@@ -1365,7 +1382,7 @@ pub(crate) fn submit_message(
         id: input.id.clone(),
         group_id: group.id.clone(),
         side_chat_id: input.side_chat_id.clone(),
-        sender: "owner".into(),
+        sender: actor.into(),
         body: input.body.clone(),
         recipients,
         reply_to: input.reply_to.clone(),

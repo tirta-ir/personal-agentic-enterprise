@@ -174,12 +174,6 @@ fn tools() -> Vec<Value> {
             json!({"request_id":s}),
             &["request_id"],
         ),
-        tool(
-            "chat_btw",
-            "Equivalent to /btw: open an independent side conversation in your current group, seeded with main history at opening. Runs the given task for you in its own session and queue. Only from main chat; max 3 per run.",
-            json!({"request_id":s,"task":s}),
-            &["request_id", "task"],
-        ),
     ]
 }
 
@@ -196,6 +190,10 @@ fn participates(conn: &Connection, group_id: &str, agent_id: &str) -> Result<Gro
 }
 
 fn call(app: &App, run: &Run, name: &str, args: Value) -> Result<Value> {
+    ensure!(
+        name != "chat_btw",
+        "Only humans can start side chats with /btw"
+    );
     if name == "ask_user" {
         return crate::questions::ask(app, run, args);
     }
@@ -272,22 +270,13 @@ fn call(app: &App, run: &Run, name: &str, args: Value) -> Result<Value> {
                 ensure_no_reset(conn, destination, None)?;
                 let task = field(&args,"task")?;
                 ensure!(!task.trim().is_empty() && task.len() <= 16000, "Task must contain 1–16000 bytes");
-                let mut message = crate::api::submit_message(conn, SendInput { id:id(), group_id:destination.into(), side_chat_id:None, body:task.into(), recipients:vec![target_id.into()], reply_to:None, artifacts:vec![] }, None)?;
+                let mut message = crate::api::submit_message_as(conn, SendInput { id:id(), group_id:destination.into(), side_chat_id:None, body:task.into(), recipients:vec![target_id.into()], reply_to:None, artifacts:vec![] }, None, &run.agent_id)?;
                 message.sender = run.agent_id.clone();
                 store::put(conn,"messages",&message.id,&message)?;
                 let target = store::list::<Run>(conn,"runs")?.into_iter().find(|r| r.message_id == message.id).context("Destination run missing")?;
                 let h = Handoff { id:id(), source_run_id:run.id.clone(), target_run_id:target.id.clone(), delivered:false, callback_run_id:None };
                 store::put(conn,"handoffs",&h.id,&h)?;
                 json!({"receipt_id":h.id,"group_id":destination,"run_id":target.id,"status":"queued"})
-            }
-            "chat_btw" => {
-                ensure!(run.side_chat_id.is_none(), "Return to main chat to open another side chat");
-                let count: i64 = conn.query_row("SELECT COUNT(*) FROM tool_receipts WHERE run_id=? AND json_extract(input,'$.name')='chat_btw'", [&run.id], |r|r.get(0))?;
-                ensure!(count < 3, "Maximum three side chats per run");
-                let mut message = crate::api::submit_message(conn, SendInput { id:id(), group_id:run.group_id.clone(), side_chat_id:None, body:format!("/btw {}",field(&args,"task")?), recipients:vec![run.agent_id.clone()], reply_to:None, artifacts:vec![] }, None)?;
-                message.sender = run.agent_id.clone();
-                store::put(conn,"messages",&message.id,&message)?;
-                json!({"side_chat_id":message.side_chat_id,"group_id":message.group_id})
             }
             "chat_reset" => {
                 let request = json!({"id":id(),"group_id":run.group_id,"side_chat_id":run.side_chat_id,"actor":run.agent_id});
