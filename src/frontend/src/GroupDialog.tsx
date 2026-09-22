@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { GroupInvites } from "./GroupInvites";
 import { RuntimeSelect } from "./RuntimeSettings";
 import { WorkstationSelect } from "./WorkstationSelect";
 import type { Workstation } from "./bindings/Workstation";
@@ -35,14 +36,6 @@ export function GroupDialog({ controllerAccess, group, agents, workstations, onC
     return { agent, level };
   });
   const selected = new Set(draft.member_ids ?? members.filter(m => !draft.scope_levels || draft.scope_levels.includes(m.level)).map(m => m.agent.id));
-  function toggleBranch(id: string, checked: boolean) {
-    const branch = new Set([id]);
-    let changed = true;
-    while (changed) { changed = false; for (const a of available) if(a.reports_to && branch.has(a.reports_to) && !branch.has(a.id)){branch.add(a.id);changed=true;} }
-    for(const id of branch) { if(checked) selected.add(id); else selected.delete(id); }
-    if(checked){let parent=available.find(a=>a.id===id)?.reports_to;const seen=new Set<string>();while(parent&&!seen.has(parent)){seen.add(parent);selected.add(parent);parent=available.find(a=>a.id===parent)?.reports_to;}}
-    setDraft({...draft, member_ids:[...selected], scope_levels:null, chat_lead_id:null});
-  }
   async function perform(action: () => Promise<Group>) {
     setBusy(true); setError("");
     try { await onSaved(await action()); onClose(); }
@@ -86,16 +79,8 @@ export function GroupDialog({ controllerAccess, group, agents, workstations, onC
             <p className="hint">Every project run uses this workdir and workstation, overriding each agent's default. Sessions remain separate from other chats.</p>
             <p className="hint">{group.id ? "Manage agents and reporting lines in the project's Structure tab." : "Your project starts with an empty team. Next, configure agents in the Structure tab."}</p>
           </>}
-          {!draft.project && <fieldset disabled={busy || closed}>
-            <legend>Invite agents and teams</legend>
-            <p className="hint">Selecting a manager includes their team. Uncheck a branch to exclude it. Managers of selected agents remain in the room.</p>
-            {members.map(({agent,level})=><label key={agent.id} style={{display:"block",paddingLeft:(level-1)*16}}><input type="checkbox" checked={selected.has(agent.id)} onChange={e=>toggleBranch(agent.id,e.target.checked)}/>{agent.name} · {agent.position}</label>)}
-          </fieldset>}
-          <fieldset disabled={busy || closed}><legend>Human members</legend>
-            <label><input type="checkbox" checked={draft.human_ids == null} onChange={e=>setDraft({...draft,human_ids:e.target.checked?undefined:[]})}/>Everyone in this workspace</label>
-            {draft.human_ids != null && people.filter(p=>p.role!=="owner").map(p=><label key={p.user} style={{display:"block"}}><input type="checkbox" checked={draft.human_ids?.includes(p.user)??false} onChange={e=>setDraft({...draft,human_ids:e.target.checked?[...(draft.human_ids??[]),p.user]:(draft.human_ids??[]).filter(id=>id!==p.user)})}/>{p.user}</label>)}
-            <p className="hint">Workspace owners can access all rooms. Add people to the workspace before inviting them here.</p>
-          </fieldset>
+          <GroupInvites agents={draft.project ? [] : available} people={people} memberIds={[...selected]} humanIds={draft.human_ids}
+            disabled={busy || closed} onChange={(member_ids, human_ids) => setDraft({...draft, member_ids, human_ids, scope_levels:null, chat_lead_id:null})}/>
           {!closed && <Button type="submit" disabled={busy || draft.scope_levels?.length === 0}>{draft.project ? group.id ? "Save project" : "Create project" : "Save group"}</Button>}
         </form>
         {!!group.id && <div className="group-lifecycle-actions">

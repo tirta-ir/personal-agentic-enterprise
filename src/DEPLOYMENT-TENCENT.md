@@ -8,8 +8,9 @@ No public HTTPS hostname or reverse-proxy route is configured for this deploymen
 ## Installation
 
 - Application source: `e323338d1042ff1fdd37952ffe21c109625b840a`.
-- Platform image: `agentic-enterprise:e323338-amd64` (Linux x86_64).
-- Image on Tencent: `sha256:82dfb08e15a6dcca93a69373802abc0f0683f8b1a1e5e18edf708c6673593698`.
+- Platform image: `agentic-enterprise:invites-20260922` (Linux x86_64), a frontend-only
+  overlay adding searchable group invitations to `agentic-enterprise:e323338-amd64`.
+- Backend base image: `sha256:82dfb08e15a6dcca93a69373802abc0f0683f8b1a1e5e18edf708c6673593698`.
 - Synapse: `ghcr.io/element-hq/synapse:v1.161.0`; server name `agentic.tencent`.
 - Deployment directory: `/home/ubuntu/agentic-enterprise`.
 - Managed service: `agentic-enterprise.service`, enabled at boot and ordered after Docker
@@ -103,3 +104,22 @@ Private migration snapshots, runnable checks, and screenshots are retained in
 `org/migration-tencent-20260922/`. The controller received organization data and
 artifacts, not workdir files or provider credentials. Registered-worker terminal/file
 browsing remains subject to the limitations in [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## Searchable group invitations
+
+Group settings use a search field, removable selection chips, an Invite button, and
+a current-access list. Invites are applied with Save group. Team invitations retain
+ancestor inclusion and selective branch removal; projects still use Structure for
+agent membership. No dependencies or authorization changes were introduced.
+
+Verify against a real deployment (the private credentials JSON contains `url`,
+`username`, and `password`; the script creates and removes an isolated workspace):
+
+```sh
+node src/scripts/verify-group-invites.mjs /path/to/credentials.json /path/to/proof
+```
+
+The live browser check covers search, chips, keyboard selection/Escape, team and
+ancestor inclusion, sibling exclusion, branch removal, protected owners, persistence,
+empty results, duplicate prevention, and a 390 px viewport. The previous deployment
+configuration remains in `compose.before-invites.yaml` for rollback.
