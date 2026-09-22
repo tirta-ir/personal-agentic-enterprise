@@ -810,6 +810,12 @@ code {
 .reply-preview { align-items: center; gap: 12px; }
 .reply-preview .reply-quote { flex: 1; margin: 0; }
 .reply-preview > button { flex-shrink: 0; padding: 8px; }
+.reply-quote-link { display: block; width: 100%; text-align: left; color: inherit; cursor: pointer; }
+.reply-quote-link:hover { filter: brightness(.95); }
+.reply-quote-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.reply-quote-link:disabled { cursor: wait; }
+.message:focus { outline: none; }
+.message:focus-visible .message-bubble { outline: 2px solid var(--primary); outline-offset: 3px; }
 .attachment-pill,
 .compose-attachments button {
   display: inline-flex;

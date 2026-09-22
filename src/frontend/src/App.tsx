@@ -4,6 +4,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -192,13 +193,16 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
   const [ownerKey, setOwnerKey] = useState("");
   const [loadedMessages, setMessages] = useState<Message[]>([]);
   const [messagesScope, setMessagesScope] = useState("");
-  const messages = messagesScope === `${groupId}:${sideChatId ?? "main"}` ? loadedMessages : [];
+  const messages = useMemo(() => messagesScope === `${groupId}:${sideChatId ?? "main"}` ? loadedMessages : [], [messagesScope, groupId, sideChatId, loadedMessages]);
+  const latestMessageId = messages.at(-1)?.id;
   const [error, setError] = useState("");
   const [deletedAgentsOpen, setDeletedAgentsOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const [reply, setReply] = useState<Message | null>(null);
+  const [replyTarget, setReplyTarget] = useState<Message | null>(null);
+  const loadedScope = useRef("");
   const [runEvents, setRunEvents] = useState<Event[]>([]);
   const [filePreview, setFilePreview] = useState<{ file: MarkdownFile; scope: string } | null>(null);
   const previewTrigger = useRef<HTMLElement | null>(null);
@@ -227,6 +231,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
   const [connected, setConnected] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
   const cursor = useRef(0);
   const panelGroup = useRef<HTMLDivElement>(null);
   const pendingMessage = useRef<{ fingerprint: string; id: string } | null>(
@@ -258,8 +263,13 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
       ? await api<Message[]>(chatMessagesPath(id, side))
       : [];
     if (id === groupRef.current.groupId && side === groupRef.current.sideChatId) {
-      setMessages(next);
-      setMessagesScope(`${id}:${side ?? "main"}`);
+      const scope = `${id}:${side ?? "main"}`;
+      const sameScope = loadedScope.current === scope;
+      loadedScope.current = scope;
+      if (!sameScope) followLatest.current = true;
+      // Keep paginated history mounted when live events refresh the newest page.
+      setMessages(current => sameScope && next.length ? [...new Map([...current, ...next].map(message => [message.id, message])).values()] : next);
+      setMessagesScope(scope);
     }
   }, [setMessages, setMessagesScope]);
   useEffect(() => {
@@ -319,8 +329,45 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
     if (authenticated) void perform(refresh);
   }, [groupId, sideChatId, authenticated, perform, refresh]);
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "instant" });
-  }, [messages.length]);
+    if (followLatest.current) bottom.current?.scrollIntoView({ behavior: "instant" });
+  }, [latestMessageId]);
+  useEffect(() => {
+    if (!replyTarget) return;
+    let cancelled = false;
+    const frame = requestAnimationFrame(() => {
+      if (replyTarget.group_id !== groupId || replyTarget.side_chat_id !== sideChatId) {
+        setReplyTarget(null);
+        return;
+      }
+      if (messagesScope !== `${groupId}:${sideChatId ?? "main"}` || !messages.length) return;
+      const target = document.getElementById(`message-${replyTarget.id}`);
+      if (target) {
+        followLatest.current = false;
+        target.scrollIntoView({ behavior: "instant", block: "center" });
+        target.focus({ preventScroll: true });
+        if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          target.animate([{ backgroundColor: "#bed5ff" }, { backgroundColor: "transparent" }], { duration: 1800 });
+        }
+        setReplyTarget(null);
+        return;
+      }
+      void api<Message[]>(`${chatMessagesPath(groupId, sideChatId, messages[0].id)}&limit=200`).then(older => {
+        if (cancelled) return;
+        if (!older.length) {
+          setError("Original message is no longer available in this conversation.");
+          setReplyTarget(null);
+        } else {
+          setMessages(current => [...new Map([...older, ...current].map(message => [message.id, message])).values()]);
+        }
+      }, (reason: unknown) => {
+        if (!cancelled) {
+          setError(reason instanceof Error ? reason.message : String(reason));
+          setReplyTarget(null);
+        }
+      });
+    });
+    return () => { cancelled = true; cancelAnimationFrame(frame); };
+  }, [replyTarget, groupId, sideChatId, messagesScope, messages]);
   useEffect(() => {
     if (selectedRun)
       void perform(async () =>
@@ -365,6 +412,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
       const sent = await post<Message>("/messages", { id: pendingMessage.current.id, ...content });
       if (sent.command === "btw" && sent.side_chat_id) go({ sideChatId: sent.side_chat_id, view: "Chat" });
       pendingMessage.current = null;
+      followLatest.current = true;
       setDraft("");
       setReply(null);
       setAttachments([]);
@@ -724,7 +772,10 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
             )}
             {tab === "Chat" && (
               <>
-                <div className="timeline">
+                <div className="timeline" onScroll={event => {
+                  const node = event.currentTarget;
+                  followLatest.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+                }}>
                   {sideChatId && (
                     <div className="side-chat-header" role="region" aria-label="Side chat">
                       <Button variant="outline" size="sm" onClick={() => go({ sideChatId: null })}>Back to main chat</Button>
@@ -787,7 +838,7 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                     const sender = allAgents.find((a) => a.id === m.sender);
                     const position = sender?.position || data?.runs.find((run) => run.id === m.run_id)?.profile.position;
                     return (
-                    <article className={`message message-${isSelf ? "self" : m.sender === "system" ? "system" : isHuman ? "human" : "agent"}`} key={m.id}>
+                    <article id={`message-${m.id}`} tabIndex={-1} className={`message message-${isSelf ? "self" : m.sender === "system" ? "system" : isHuman ? "human" : "agent"}`} key={m.id}>
                       {m.sender === "system" ? (
                         <div className="avatar system-avatar">
                           <Slash size={17} />
@@ -835,7 +886,11 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                         <div className="message-bubble">
                           {m.reply_to && <ReplyQuote key={`${groupId}:${m.reply_to}`} id={m.reply_to}
                             message={messages.find(message => message.id === m.reply_to)}
-                            groupId={groupId} sideChatId={m.command === "btw" ? null : m.side_chat_id} agents={allAgents} user={user} />}
+                            groupId={groupId} sideChatId={m.command === "btw" ? null : m.side_chat_id} agents={allAgents} user={user}
+                            jumping={replyTarget?.id === m.reply_to} onJump={message => {
+                              setReplyTarget(message);
+                              if (message.side_chat_id !== sideChatId) go({ sideChatId: message.side_chat_id });
+                            }} />}
                           <div className="markdown">
                             <MessageMarkdown runId={m.run_id} onPreview={openPreview}>
                               {m.command === "btw" ? (m.body.replace(/^\s*\/btw\s*/, "") || "Side conversation") : m.body}

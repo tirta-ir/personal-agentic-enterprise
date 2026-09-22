@@ -2,6 +2,8 @@
 
 Chat replies show the original sender and a two-line message preview inside the bubble, including after reload or when the original is outside the loaded history. Replying to an agent addresses that agent without another mention; explicit mentions take precedence. Replies to humans and ordinary room posts do not invoke agents. Agent answers quote the user message that started their run. Group membership and side-chat boundaries still apply.
 
+Click a quoted preview (or press Enter/Space while focused) to jump to and highlight the original message. Older history loads automatically. Live updates preserve loaded history and your reading position; scrolling to the bottom or sending a message resumes following new messages.
+
 The decentralized workspace implementation adds authenticated tenants, registered outbound workers, explicit human/agent groups, and Matrix rooms. Start with [deployment and one-line installation](DEPLOYMENT.md) and the [real-service verification record](VERIFICATION-DECENTRALIZED-2026-09-21.md). The local/SSH instructions below describe the retained bootstrap-owner mode; new workspaces use registered runtimes.
 
 ## Workspace navigation

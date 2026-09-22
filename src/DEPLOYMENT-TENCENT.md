@@ -9,9 +9,9 @@ No public HTTPS hostname or reverse-proxy route is configured for this deploymen
 
 - Application source: `codex/decentralized-workspaces`, including searchable invitations,
   worker catalog preservation, embedded replies and direct reply routing.
-- Platform image: `agentic-enterprise:replies-20260922` (Linux x86_64), rebuilt with
-  the updated backend and frontend.
-- Image: `sha256:68fc69914226230789ba4b66e44aab67012505a6289a98c2665ad63f7b7aff04`.
+- Platform image: `agentic-enterprise:reply-jump-20260922` (Linux x86_64), a frontend
+  update on `agentic-enterprise:replies-20260922` for navigation to quoted messages.
+- Image: `sha256:b2e4efe1a89c35a14ef3b49417dd0af440778bf36f8158566d984f47e1a1d575`.
 - Synapse: `ghcr.io/element-hq/synapse:v1.161.0`; server name `agentic.tencent`.
 - Deployment directory: `/home/ubuntu/agentic-enterprise`.
 - Managed service: `agentic-enterprise.service`, enabled at boot and ordered after Docker
@@ -148,3 +148,15 @@ The prior live image and `compose.before-replies.yaml` remain available for roll
 On 2026-09-22 the live check passed with two successful Windows worker runs, no
 browser errors and unchanged original agent/group records in both workspaces.
 Evidence is retained in `org/verification-replies-20260922/browser/` (private).
+
+Quoted previews are buttons that scroll to, focus and briefly highlight the
+original bubble. Older pages load automatically; loaded history and scroll position
+survive live refreshes. A side-chat opening quote can return to its original main
+conversation. Reduced-motion preferences suppress the highlight animation.
+
+`node src/scripts/verify-reply-jump.mjs /path/to/credentials.json /path/to/proof`
+checks mouse, Enter/Space, multiple history pages, live updates, mobile and side-to-main
+navigation in a disposable workspace, using real APIs without model calls or mocks.
+The prior live configuration is saved as `compose.before-reply-jump.yaml`.
+The live check passed on 2026-09-22, including reduced-motion behavior and zero
+browser errors. Evidence: `org/verification-reply-jump-20260922/final/` (private).

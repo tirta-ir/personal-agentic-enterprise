@@ -3,9 +3,10 @@ import { api } from "./api";
 import type { Agent } from "./bindings/Agent";
 import type { Message } from "./bindings/Message";
 
-export function ReplyQuote({ id, message, groupId, sideChatId, agents, user }: {
+export function ReplyQuote({ id, message, groupId, sideChatId, agents, user, onJump, jumping }: {
   id: string; message?: Message; groupId: string; sideChatId: string | null;
   agents: Agent[]; user: string;
+  onJump?: (message: Message) => void; jumping?: boolean;
 }) {
   const [loaded, setLoaded] = useState<Message>();
   const [error, setError] = useState("");
@@ -30,8 +31,13 @@ export function ReplyQuote({ id, message, groupId, sideChatId, agents, user }: {
     : quoted?.sender === "owner" ? "Workspace owner"
     : quoted?.sender === "system" ? "Agentic Enterprise"
     : agents.find(agent => agent.id === quoted?.sender)?.name ?? quoted?.sender;
-  return <blockquote className="reply-quote" aria-label="Quoted message" title={error || undefined}>
+  const content = <>
     {quoted ? <><strong>{author}</strong><span>{quoted.body || "Attachment"}</span></>
       : <span>{error ? "Original message unavailable" : "Loading original message…"}</span>}
-  </blockquote>;
+  </>;
+  return onJump
+    ? <button type="button" className="reply-quote reply-quote-link" aria-label={`Go to original message${author ? ` from ${author}` : ""}`}
+        aria-busy={jumping || undefined} disabled={!quoted || jumping} title={error || "Go to original message"}
+        onClick={() => quoted && onJump(quoted)}>{content}</button>
+    : <blockquote className="reply-quote" aria-label="Quoted message" title={error || undefined}>{content}</blockquote>;
 }
