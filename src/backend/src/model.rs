@@ -25,6 +25,9 @@ pub struct Workspace {
 #[ts(export)]
 pub struct Agent {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime_id: Option<String>,
     #[serde(default)]
     pub harness: Harness,
     #[serde(default)]

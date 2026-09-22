@@ -32,7 +32,7 @@ import type { Workstation } from "./bindings/Workstation";
 import type { Connection } from "./bindings/Connection";
 import type { Agent } from "./bindings/Agent";
 import type { ChartCard } from "./bindings/ChartCard";
-import type { RegisteredRuntime } from "./RuntimeSettings";
+import type { RegisteredRuntime } from "./runtimeCatalog";
 import { api, put } from "./api";
 import "@xyflow/react/dist/style.css";
 import "./OrganizationChart.css";
@@ -316,9 +316,10 @@ export function OrganizationChart({
     const card = savedLayout[node.id];
     const workdir = node.data.agent?.workdir;
     const hostName = workstations.find(host => host.id === workdir?.ssh_host)?.name;
-    const runtimeName = !workdir ? "Not assigned" : workdir.runtime_id
-      ? runtimes?.find(runtime => runtime.id === workdir.runtime_id)?.name ?? (runtimeError || runtimes ? "Runtime unavailable" : "Loading…")
-      : workdir.ssh_host ? hostName ?? workdir.ssh_host : "Local";
+    const runtimeId = workdir?.runtime_id ?? node.data.agent?.runtime_id;
+    const runtimeName = runtimeId
+      ? runtimes?.find(runtime => runtime.id === runtimeId)?.name ?? (runtimeError || runtimes ? "Runtime unavailable" : "Loading…")
+      : !workdir ? "Not assigned" : workdir.ssh_host ? hostName ?? workdir.ssh_host : "Local";
     return {
       ...node,
       ...(card
@@ -362,7 +363,7 @@ export function OrganizationChart({
     .join("|");
   return (
     <section className="organization-view" aria-label="Organization">
-      {runtimeError && agents.some(agent => agent.workdir?.runtime_id) && <p className="org-layout-error" role="alert">Could not load runtime names: {runtimeError}</p>}
+      {runtimeError && agents.some(agent => agent.runtime_id || agent.workdir?.runtime_id) && <p className="org-layout-error" role="alert">Could not load runtime names: {runtimeError}</p>}
       <header className="organization-header">
         <div>
           <h1>{projectName ? `${projectName} · Structure` : "Organization"}</h1>

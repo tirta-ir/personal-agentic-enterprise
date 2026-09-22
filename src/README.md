@@ -50,6 +50,14 @@ A failed, timed-out or interrupted run gets one read-only review by an eligible 
 
 OpenCode standalone/private server processes belong to the existing local process tree or SSH watchdog; they are not a separately deployed daemon. Native session data stays under `org/.state/runtime` locally, or the organization namespace under `~/.local/share/agentic-enterprise` remotely. These protected directories must be included in stopped-service backups if native-session recovery is required.
 
+## Runtime selection and metadata
+
+Create an agent through **Organization → Add agent**: choose its registered runtime, a harness reported by that machine, and an absolute workdir, then complete the profile. Runtime options display only their names. Offline workers and workers without a signed-in harness catalog cannot create runnable agents. The selected model is shown before creation; the workdir is validated on the worker before saving.
+
+For existing agents, **Profile → Registered runtime** appears immediately before **Harness**. Changing runtime clears the old workdir and model selection; save the profile, select the model for that machine, and attach its folder in **Workdir**. A runtime can be saved before a folder is attached, but execution still requires a validated workdir. Dedicated project agents inherit their project's runtime and folder.
+
+**User settings → Runtime → Edit** changes a runtime's name and description without replacing its registration. Root folder, OS and harness availability are reported by the worker; change those on the machine itself. Owner authorization and workspace isolation apply to metadata updates (`PUT /api/runtimes/{id}`). Revoked registrations cannot be edited.
+
 ## Answering agent questions
 
 New runs receive `enterprise.ask_user` through the existing native MCP connection. When an agent needs clarification, it asks in a **Needs your answer** card in the originating group or side chat. Choose a suggestion or write your own answer, then **Send answer**. Other chats show a notice linking to the unanswered question. Private delegates can ask the owner through a system card without gaining permission to post normal group replies.

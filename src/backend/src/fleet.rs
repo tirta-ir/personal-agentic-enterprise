@@ -98,6 +98,35 @@ pub fn revoke(app: &App, id: &str) -> Result<()> {
         Ok(())
     })
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeMetadata {
+    pub name: String,
+    pub description: String,
+}
+pub fn update(db: &Connection, id: &str, input: RuntimeMetadata) -> Result<()> {
+    security::validate_id(id)?;
+    let name = input.name.trim();
+    ensure!(
+        !name.is_empty() && name.len() <= 80 && !name.chars().any(char::is_control),
+        "Runtime name must contain 1–80 bytes without control characters"
+    );
+    ensure!(
+        input.description.len() <= 2000 && !input.description.contains('\0'),
+        "Description must be at most 2000 bytes without null characters"
+    );
+    let key = format!("runtime:{id}");
+    let mut runtime = read(db, &key)?.context("Runtime not found")?;
+    ensure!(
+        runtime["revoked"] == false,
+        "Revoked runtimes cannot be edited"
+    );
+    runtime["name"] = name.into();
+    runtime["description"] = input.description.trim().into();
+    put(db, &key, &runtime)?;
+    store::event(db, "runtime.updated", &json!({"runtime_id":id}))?;
+    Ok(())
+}
 pub fn settings(
     app: &App,
     id: &str,
@@ -110,6 +139,93 @@ pub fn settings(
         .context("Registered runtime is offline or revoked")?;
     serde_json::from_value(runtime["capabilities"][harness.as_str()].clone())
         .context("Harness is not signed in or its model catalog is unavailable on this runtime")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metadata_updates_preserve_worker_registration_and_reject_configuration_injection()
+    -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let store = store::Store::open(directory.path().join("org"))?;
+        let original = json!({"id":"worker","name":"Before","token":"private-hash","root":"/workdir","os":"linux","revoked":false,"last_seen":123,"capabilities":{"codex":{"models":[]}}});
+        store.write(|db| put(db, "runtime:worker", &original))?;
+        store.write(|db| {
+            update(
+                db,
+                "worker",
+                RuntimeMetadata {
+                    name: " After ".into(),
+                    description: " Notes ".into(),
+                },
+            )
+        })?;
+        let updated = store.read(|db| read(db, "runtime:worker"))?.unwrap();
+        assert_eq!(updated["name"], "After");
+        assert_eq!(updated["description"], "Notes");
+        for key in [
+            "token",
+            "root",
+            "os",
+            "revoked",
+            "last_seen",
+            "capabilities",
+        ] {
+            assert_eq!(updated[key], original[key]);
+        }
+        assert!(
+            serde_json::from_value::<RuntimeMetadata>(
+                json!({"name":"x","description":"","root":"/"})
+            )
+            .is_err()
+        );
+        for name in ["", " ", "bad\nname"] {
+            assert!(
+                store
+                    .write(|db| update(
+                        db,
+                        "worker",
+                        RuntimeMetadata {
+                            name: name.into(),
+                            description: String::new()
+                        }
+                    ))
+                    .is_err()
+            );
+        }
+        assert!(
+            store
+                .write(|db| update(
+                    db,
+                    "missing",
+                    RuntimeMetadata {
+                        name: "x".into(),
+                        description: String::new()
+                    }
+                ))
+                .is_err()
+        );
+        store.write(|db| {
+            let mut runtime = updated.clone();
+            runtime["revoked"] = true.into();
+            put(db, "runtime:worker", &runtime)
+        })?;
+        assert!(
+            store
+                .write(|db| update(
+                    db,
+                    "worker",
+                    RuntimeMetadata {
+                        name: "x".into(),
+                        description: String::new()
+                    }
+                ))
+                .is_err()
+        );
+        Ok(())
+    }
 }
 pub fn validate(app: &App, w: &Workspace) -> Result<Workspace> {
     let id = w.runtime_id.as_ref().context("Runtime required")?;

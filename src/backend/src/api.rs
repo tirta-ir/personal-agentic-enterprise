@@ -162,6 +162,12 @@ async fn harness_catalog(
             }
             let workspace = if let Some(id) = query.agent_id {
                 let agent: Agent = app.store.get("agents", &id)?;
+                if agent.project_id.is_none()
+                    && agent.workdir.is_none()
+                    && let Some(id) = &agent.runtime_id
+                {
+                    return crate::fleet::settings(&app, id, query.harness);
+                }
                 app.store
                     .read(|conn| crate::projects::workspace(conn, &agent))?
             } else {
@@ -449,6 +455,29 @@ fn validate_agent(app: &App, agent: &mut Agent) -> Result<()> {
     let effective_workspace = app
         .store
         .read(|conn| crate::projects::workspace(conn, agent))?;
+    if agent.project_id.is_some() {
+        agent.runtime_id = effective_workspace
+            .as_ref()
+            .and_then(|workspace| workspace.runtime_id.clone());
+    } else if let Some(workspace) = &agent.workdir {
+        ensure!(
+            agent
+                .runtime_id
+                .as_ref()
+                .is_none_or(|id| workspace.runtime_id.as_ref() == Some(id)),
+            "Workdir belongs to a different runtime; attach a folder on the selected runtime"
+        );
+        agent.runtime_id = workspace.runtime_id.clone();
+    }
+    if let Some(id) = &agent.runtime_id {
+        security::validate_id(id)?;
+        ensure!(
+            crate::fleet::list(app)?
+                .iter()
+                .any(|runtime| runtime["id"] == *id && runtime["revoked"] == false),
+            "Runtime not available in this workspace"
+        );
+    }
     if effective_workspace.is_some() {
         crate::opencode::settings_for(app, agent.harness, effective_workspace.as_ref())?
             .resolve(&agent.model, &agent.reasoning)?;

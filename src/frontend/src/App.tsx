@@ -64,7 +64,9 @@ import { ChatActivity, MessageModelBadge } from "./ChatActivity";
 import { ReplyQuote } from "./ReplyQuote";
 import { isActiveRun } from "./runStatus";
 import { ProjectTeam } from "./ProjectTeam";
-import { RuntimeSelect } from "./RuntimeSettings";
+import { RuntimeSelect, HarnessSelect } from "./RuntimeSettings";
+import { availableHarnesses, type RegisteredRuntime } from "./runtimeCatalog";
+import { NewAgentDialog } from "./NewAgentDialog";
 import { WorkstationSelect } from "./WorkstationSelect";
 import { UserSettings } from "./UserSettings";
 import type { Workstation } from "./bindings/Workstation";
@@ -1312,91 +1314,13 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={newAgent} onOpenChange={setNewAgent}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add your agent</DialogTitle>
-            <DialogDescription>
-              Give it a name, position, and role. Attach its codebase next.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="form-stack"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const fields = new FormData(e.currentTarget);
-              void perform(async () => {
-                const a = await post<Agent>("/agents", {
-                  id: "",
-                  name: String(fields.get("name")),
-                  project_id: String(fields.get("project_id")??"") || null,
-                  position: String(fields.get("position") ?? ""),
-                  role: String(fields.get("role")),
-                  color: getComputedStyle(document.documentElement).getPropertyValue("--gauss-700").trim(),
-                  harness: String(fields.get("harness") || "codex"),
-                  model: "",
-                  reasoning: "",
-                  reports_to: String(fields.get("reports_to") ?? "") || null,
-                  instructions:
-                    "Work carefully. Explain your changes and verify the result.",
-                  agents_md: "",
-                  workdir: null,
-                  permission: fields.get("harness") === "opencode" ? "danger-full-access" : "read-only",
-                  timeout_seconds: 1800,
-                  enabled: true,
-                  deleted_at: null,
-                  revision: 1,
-                });
-                await refresh();
-                setNewAgent(false);
-                if (a.project_id) { setProjectTeamOpen(true); go({ groupId: a.project_id, view: "Structure", agentId: a.id, section: "Profile", runId: null }); }
-                else setSelectedAgent(a.id);
-              });
-            }}
-          >
-            <Label htmlFor="agent-project">Agent scope</Label>
-            <select id="agent-project" name="project_id" defaultValue={newAgentProject}><option value="">Organization agent</option>{data?.groups.filter(g=>g.project&&!g.archived_at).map(g=><option key={g.id} value={g.id}>Project: {g.name}</option>)}</select>
-            <Label htmlFor="agent-harness">Harness</Label>
-            <select id="agent-harness" name="harness" defaultValue="codex"><option value="codex">Codex CLI</option><option value="opencode">OpenCode</option></select>
-            <Label htmlFor="agent-name">Name</Label>
-            <Input
-              id="agent-name"
-              name="name"
-              placeholder="Engineer"
-              required
-              maxLength={80}
-            />
-            <Label htmlFor="agent-position">Position</Label>
-            <Input
-              id="agent-position"
-              name="position"
-              placeholder="Software Engineer"
-              maxLength={120}
-            />
-            <Label htmlFor="agent-role">Role</Label>
-            <Input
-              id="agent-role"
-              name="role"
-              placeholder="Build and maintain our products"
-            />
-            <Label htmlFor="agent-manager">Reports to</Label>
-            <select id="agent-manager" name="reports_to" defaultValue="">
-              <option value="">Organization owner</option>
-              {data?.agents.filter(a=>!a.project_id).map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-            <Button type="submit">Create agent</Button>
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
-          </form>
-        </DialogContent>
-      </Dialog>
+      {newAgent && <NewAgentDialog agents={organizationAgents} groups={data?.groups ?? []} projectId={newAgentProject}
+        controllerAccess={controllerAccess} workstations={data?.workstations ?? []} onClose={() => setNewAgent(false)}
+        onCreated={async agent => {
+          await refresh(); setNewAgent(false);
+          if (agent.project_id) { setProjectTeamOpen(true); go({ groupId: agent.project_id, view: "Structure", agentId: agent.id, section: "Profile", runId: null }); }
+          else setSelectedAgent(agent.id);
+        }} />}
       {groupEditor && <GroupDialog controllerAccess={controllerAccess} key={`${groupEditor.id}:${groupEditor.archived_at}:${groupEditor.deleted_at}`}
         group={data?.groups.find((g) => g.id === groupEditor.id) ?? groupEditor}
         agents={organizationAgents}
@@ -1676,7 +1600,8 @@ function AgentInspector({
   const effectiveAgent = projectWorkdir ? {...agent,workdir:projectWorkdir} : agent;
   const [path, setPath] = useState(agent.workdir?.path ?? "");
   const [sshHost, setSshHost] = useState(agent.workdir?.ssh_host ?? "");
-  const [runtimeId, setRuntimeId] = useState(agent.workdir?.runtime_id ?? "");
+  const [runtimeId, setRuntimeId] = useState(projectWorkdir?.runtime_id ?? agent.runtime_id ?? agent.workdir?.runtime_id ?? "");
+  const [runtimes, setRuntimes] = useState<RegisteredRuntime[]>([]);
   const remote = Boolean(sshHost);
   const [probe, setProbe] = useState("");
   const [filePath, setFilePath] = useState("");
@@ -1705,12 +1630,13 @@ function AgentInspector({
   const modelsRequest = useRef(0);
   const loadModels = useCallback(() => {
     const request = ++modelsRequest.current;
+    if (!runtimeId && !controllerAccess) { setModels(null); setModelError("Choose a runtime to load its model catalog."); return Promise.resolve(); }
     return api<CodexSettings>(`/harness/settings?harness=${edited.harness}&agent_id=${encodeURIComponent(agent.id)}${runtimeId ? `&runtime_id=${encodeURIComponent(runtimeId)}` : catalogHost ? `&ssh_host=${encodeURIComponent(catalogHost)}` : ""}`).then(settings => {
       if (request === modelsRequest.current) { setModels(settings); setModelError(""); }
     }, (error: unknown) => {
       if (request === modelsRequest.current) setModelError(error instanceof Error ? error.message : String(error));
     });
-  }, [catalogHost, runtimeId, edited.harness, agent.id]);
+  }, [catalogHost, runtimeId, edited.harness, agent.id, controllerAccess]);
   useEffect(() => {
     if (section !== "Profile") return;
     let request = modelsRequest.current;
@@ -1862,14 +1788,18 @@ function AgentInspector({
                 <OrganizationRelationships context={organization} />
               )}
             </details>
-            <Label htmlFor="profile-harness">Harness</Label>
-            <select id="profile-harness" value={edited.harness} onChange={event => {
+            <RuntimeSelect value={runtimeId} onLoaded={setRuntimes} disabled={Boolean(projectWorkdir)} allowController={controllerAccess}
+              onChange={id => {
+                setRuntimeId(id); setSshHost(""); setPath(""); setProbe(""); setModels(null); setModelError(""); setSaved(false);
+                const available = availableHarnesses(runtimes.find(runtime => runtime.id === id));
+                setEdited({...edited, runtime_id: id || undefined, workdir: null, model: "", reasoning: "", harness: available.includes(edited.harness) ? edited.harness : available[0] ?? edited.harness});
+              }} />
+            {projectWorkdir && <p className="hint">This project's runtime is configured in project settings.</p>}
+            {runtimeId !== (agent.runtime_id ?? agent.workdir?.runtime_id ?? "") && !projectWorkdir && <p className="hint">Save this runtime, then attach its folder in Workdir before running the agent.</p>}
+            <HarnessSelect id="profile-harness" value={edited.harness} runtimeId={runtimeId} runtimes={runtimes} allowController={controllerAccess} onChange={harness => {
               setModels(null); setModelError(""); setProbe("");
-              setEdited({...edited, harness: event.target.value as Agent["harness"], model:"", reasoning:"", permission: event.target.value === "opencode" ? "danger-full-access" : edited.permission});
-            }}>
-              <option value="codex">Codex CLI</option>
-              <option value="opencode">OpenCode</option>
-            </select>
+              setEdited({...edited, harness, model:"", reasoning:"", permission: harness === "opencode" ? "danger-full-access" : edited.permission});
+            }} />
             <p className="hint">Each harness keeps its own resumable sessions. Switching back resumes that harness’s conversation.</p>
             <Label htmlFor="profile-model">Model</Label>
             <select
@@ -1988,7 +1918,8 @@ function AgentInspector({
             {probe && <p className="probe-result">{probe}</p>}
           </div>
         )}
-        {section === "Workdir" && (
+        {section === "Workdir" && projectWorkdir && <div className="form-stack"><h3>Project workdir</h3><p>Runtime and workdir are inherited from this project.</p><code>{projectWorkdir.path}</code><a href={`/projects/${agent.project_id}/structure`}>Open project structure to manage its workdir</a></div>}
+        {section === "Workdir" && !projectWorkdir && (
           <div className="form-stack">
             <div className="workdir-icon">
               <FolderOpen size={26} />
@@ -2000,7 +1931,7 @@ function AgentInspector({
               this folder’s .env file when they start. Edit the file in your
               codebase; changes apply to the next execution.
             </p>
-            <RuntimeSelect value={runtimeId} onChange={id=>{setRuntimeId(id);setSshHost("");setPath("");setProbe("");}}/>
+            <p className="hint">Runtime: {runtimes.find(runtime => runtime.id === runtimeId)?.name ?? (runtimeId ? "Selected in Profile" : "Controller / SSH")}. <button type="button" onClick={() => onSectionChange("Profile")}>Change in Profile</button></p>
             {controllerAccess && !runtimeId && <WorkstationSelect id="workstation-host" value={sshHost} workstations={workstations} onChange={host => { setSshHost(host); setPath(""); setProbe(""); }}/> }
             <Label htmlFor="workdir-path">Absolute directory path</Label>
             <Button variant="outline" disabled={!controllerAccess || !!runtimeId || (remote && !sshHost.trim())} onClick={() => setFolderPicker(true)}>
@@ -2021,7 +1952,7 @@ function AgentInspector({
                     workspace: Workspace;
                     git_status: string;
                   }>("/workspaces/probe", { path, runtime_id: runtimeId || null, ssh_host: remote ? sshHost.trim() : null });
-                  setEdited({ ...edited, workdir: result.workspace });
+                  setEdited({ ...edited, runtime_id: result.workspace.runtime_id, workdir: result.workspace });
                   setProbe(result.git_status);
                 })
               }
@@ -2060,8 +1991,8 @@ function AgentInspector({
                     "/workspaces/probe",
                     { path, runtime_id: runtimeId || null, ssh_host: remote ? sshHost.trim() : null },
                   );
-                  const changedHost = (result.workspace.ssh_host ?? null) !== (agent.workdir?.ssh_host ?? null) || result.workspace.runtime_id !== agent.workdir?.runtime_id;
-                  await save({ ...edited, workdir: result.workspace, ...(changedHost ? {model:"", reasoning:""} : {}) });
+                  const changedSshHost = (result.workspace.ssh_host ?? null) !== (agent.workdir?.ssh_host ?? null);
+                  await save({ ...edited, runtime_id: result.workspace.runtime_id, workdir: result.workspace, ...(changedSshHost ? {model:"", reasoning:""} : {}) });
                 })
               }
             >

@@ -127,3 +127,6 @@
 .invite-remove:focus-visible, .invite-chip button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .invite-empty { padding: 14px 8px; font-size: 12px; color: var(--muted-foreground); }
 .group-invites > .hint { margin-top: 8px; }
+
+.runtime-edit { order: 1; flex-basis: 100%; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); }
+.new-agent-dialog { max-height: calc(100dvh - 40px); overflow-y: auto; }

@@ -9,9 +9,9 @@ No public HTTPS hostname or reverse-proxy route is configured for this deploymen
 
 - Application source: `codex/decentralized-workspaces`, including searchable invitations,
   worker catalog preservation, embedded replies and direct reply routing.
-- Platform image: `agentic-enterprise:runtime-badges-20260922` (Linux x86_64), a
-  frontend update on `agentic-enterprise:action-alignment-20260922` showing runtime names on agent cards.
-- Image: `sha256:67e1704fc8a9dcb0d624e9be322a5b5546684b6038050c890dcbe808ea628857`.
+- Platform image: `agentic-enterprise:runtime-setup-final-20260922` (Linux x86_64), including
+  runtime-first agent creation, persisted Profile runtime selection and runtime metadata editing.
+- Image: `sha256:69352f782bb787be85d9471e7041de78fa183911b62a2e07cc74a2e22e4982f5`.
 - Synapse: `ghcr.io/element-hq/synapse:v1.161.0`; server name `agentic.tencent`.
 - Deployment directory: `/home/ubuntu/agentic-enterprise`.
 - Managed service: `agentic-enterprise.service`, enabled at boot and ordered after Docker
@@ -176,3 +176,21 @@ read-only APIs and the real browser. The 2026-09-22 check covered 17 agents, Win
 and Mac registrations, and the CRD–AKM project, with no browser errors.
 Evidence: `org/verification-runtime-badges-20260922/browser/` (private). Rollback:
 `compose.before-runtime-badges.yaml`.
+
+
+Runtime setup was verified through the deployed browser on 2026-09-22. New-agent
+creation follows runtime, detected harness, workdir, then profile. The check created
+and removed a temporary agent using the real Windows worker probe, rejected an
+out-of-root folder, switched runtime through Profile, reattached a workdir without
+losing its selected model, and checked project inheritance and mobile layout.
+A temporary workspace verified name/description persistence, invalid metadata,
+cross-workspace access, anonymous access and revoked-registration rejection.
+Original agents, groups, workdirs, models and saved layouts were preserved.
+
+Reproduce with `node src/scripts/verify-runtime-setup.mjs credentials.json output-dir
+workspace-id windows-runtime-id other-runtime-id absolute-workdir` (one line).
+The script uses real Matrix authentication and worker APIs, with no mocks or model
+calls. Backend tests: 65 passed; frontend lint/typecheck/build passed. Evidence:
+`org/verification-runtime-setup-20260922/browser/` (private). Rollback:
+`compose.before-runtime-setup.yaml`. Machine-reported root, OS and harness catalogs
+remain read-only; edit those on the worker itself.

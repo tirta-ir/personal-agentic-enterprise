@@ -594,6 +594,16 @@ impl Platform {
                 .into_response());
             }
             if let Some(id) = path.strip_prefix("/api/runtimes/") {
+                if method == Method::PUT {
+                    let input: crate::fleet::RuntimeMetadata = serde_json::from_slice(
+                        &to_bytes(req.into_body(), 16384)
+                            .await
+                            .map_err(anyhow::Error::from)?,
+                    )
+                    .map_err(anyhow::Error::from)?;
+                    app.store.write(|db| crate::fleet::update(db, id, input))?;
+                    return Ok(axum::Json(json!({"updated":true})).into_response());
+                }
                 if method == Method::DELETE {
                     crate::fleet::revoke(&app, id)?;
                     return Ok(axum::Json(json!({"revoked":true})).into_response());
