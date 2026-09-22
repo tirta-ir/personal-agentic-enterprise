@@ -32,7 +32,8 @@ import type { Workstation } from "./bindings/Workstation";
 import type { Connection } from "./bindings/Connection";
 import type { Agent } from "./bindings/Agent";
 import type { ChartCard } from "./bindings/ChartCard";
-import { put } from "./api";
+import type { RegisteredRuntime } from "./RuntimeSettings";
+import { api, put } from "./api";
 import "@xyflow/react/dist/style.css";
 import "./OrganizationChart.css";
 
@@ -41,6 +42,7 @@ type PersonNode = Node<
     agent?: Agent;
     connection?: Connection;
     hostName?: string;
+    runtimeName?: string;
     reports: number;
     onSelect?: (id: string) => void;
   },
@@ -87,8 +89,9 @@ function PersonCard({ id, data, selected }: NodeProps<PersonNode>) {
       <div className="org-card-heading">
         <span className="org-card-kind">
           <GripVertical size={13} aria-hidden="true" />
-          {owner ? "Organization owner" : agent.project_id ? (agent.workdir?.ssh_host ? "Project · Remote" : "Project agent") : agent.workdir?.ssh_host ? "Remote agent" : "Organization agent"}
+          {owner ? "Organization owner" : agent.project_id ? "Project agent" : "Organization agent"}
         </span>
+        {agent && <span className="org-card-runtime" title={`Runtime: ${data.runtimeName}`} aria-label={`Runtime: ${data.runtimeName}`}>{data.runtimeName}</span>}
         {agent && (
           <button
             type="button"
@@ -100,7 +103,7 @@ function PersonCard({ id, data, selected }: NodeProps<PersonNode>) {
               onSelect?.(agent.id);
             }}
           >
-            <Settings2 size={13} /> Edit
+            <Settings2 size={13} />
           </button>
         )}
       </div>
@@ -285,6 +288,17 @@ export function OrganizationChart({
   const layout = useMemo(() => chartLayout(agents), [agents]);
   const [nodes, setNodes] = useState<PersonNode[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [runtimes, setRuntimes] = useState<RegisteredRuntime[] | null>(null);
+  const [runtimeError, setRuntimeError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    void api<RegisteredRuntime[]>("/runtimes").then(value => {
+      if (!cancelled) setRuntimes(value);
+    }, (error: unknown) => {
+      if (!cancelled) setRuntimeError(error instanceof Error ? error.message : String(error));
+    });
+    return () => { cancelled = true; };
+  }, []);
   const [arranged, setArranged] = useState(0);
   const saveQueue = useRef(Promise.resolve());
   function save(snapshot: ChartLayout) {
@@ -300,6 +314,11 @@ export function OrganizationChart({
   }
   const renderedNodes = layout.nodes.map((node) => {
     const card = savedLayout[node.id];
+    const workdir = node.data.agent?.workdir;
+    const hostName = workstations.find(host => host.id === workdir?.ssh_host)?.name;
+    const runtimeName = !workdir ? "Not assigned" : workdir.runtime_id
+      ? runtimes?.find(runtime => runtime.id === workdir.runtime_id)?.name ?? (runtimeError || runtimes ? "Runtime unavailable" : "Loading…")
+      : workdir.ssh_host ? hostName ?? workdir.ssh_host : "Local";
     return {
       ...node,
       ...(card
@@ -311,7 +330,7 @@ export function OrganizationChart({
         : {}),
       ...nodes.find((existing) => existing.id === node.id),
       selected: node.data.agent?.id === selected,
-      data: { ...node.data, onSelect, hostName: workstations.find(h => h.id === node.data.agent?.workdir?.ssh_host)?.name, connection: node.data.agent ? connections[node.data.agent.id] : undefined },
+      data: { ...node.data, onSelect, hostName, runtimeName, connection: node.data.agent ? connections[node.data.agent.id] : undefined },
     };
   });
   const nodesRef = useRef<PersonNode[]>(renderedNodes);
@@ -343,6 +362,7 @@ export function OrganizationChart({
     .join("|");
   return (
     <section className="organization-view" aria-label="Organization">
+      {runtimeError && agents.some(agent => agent.workdir?.runtime_id) && <p className="org-layout-error" role="alert">Could not load runtime names: {runtimeError}</p>}
       <header className="organization-header">
         <div>
           <h1>{projectName ? `${projectName} · Structure` : "Organization"}</h1>

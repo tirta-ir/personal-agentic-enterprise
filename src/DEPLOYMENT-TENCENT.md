@@ -9,9 +9,9 @@ No public HTTPS hostname or reverse-proxy route is configured for this deploymen
 
 - Application source: `codex/decentralized-workspaces`, including searchable invitations,
   worker catalog preservation, embedded replies and direct reply routing.
-- Platform image: `agentic-enterprise:action-alignment-20260922` (Linux x86_64), a
-  frontend update on `agentic-enterprise:reply-jump-20260922` aligning action-table cells.
-- Image: `sha256:7e7ee6bea8e0168d74cd7c8eafa5989789d36d1253c23dee35625fc700d8e77f`.
+- Platform image: `agentic-enterprise:runtime-badges-20260922` (Linux x86_64), a
+  frontend update on `agentic-enterprise:action-alignment-20260922` showing runtime names on agent cards.
+- Image: `sha256:67e1704fc8a9dcb0d624e9be322a5b5546684b6038050c890dcbe808ea628857`.
 - Synapse: `ghcr.io/element-hq/synapse:v1.161.0`; server name `agentic.tencent`.
 - Deployment directory: `/home/ubuntu/agentic-enterprise`.
 - Managed service: `agentic-enterprise.service`, enabled at boot and ordered after Docker
@@ -167,3 +167,12 @@ across headers and short/wrapped rows, versus up to 18 px before. Sorting, resiz
 and 390 px layout passed; existing organization and action records were unchanged.
 Evidence: `org/verification-action-alignment-20260922/` (private). Rollback configuration:
 `compose.before-action-alignment.yaml`.
+
+Organization/project cards display the assigned runtime beside the agent type, using
+the effective project workdir where applicable. Saved card geometry is preserved.
+`node src/scripts/verify-org-runtimes.mjs credentials.json output-dir workspace-id`
+checks actual runtime names, tooltips, layout fit and unchanged saved records using
+read-only APIs and the real browser. The 2026-09-22 check covered 17 agents, Windows
+and Mac registrations, and the CRD–AKM project, with no browser errors.
+Evidence: `org/verification-runtime-badges-20260922/browser/` (private). Rollback:
+`compose.before-runtime-badges.yaml`.
