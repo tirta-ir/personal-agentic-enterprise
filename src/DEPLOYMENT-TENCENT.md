@@ -9,9 +9,9 @@ No public HTTPS hostname or reverse-proxy route is configured for this deploymen
 
 - Application source: `codex/decentralized-workspaces`, including searchable invitations,
   worker catalog preservation, embedded replies and direct reply routing.
-- Platform image: `agentic-enterprise:reply-jump-20260922` (Linux x86_64), a frontend
-  update on `agentic-enterprise:replies-20260922` for navigation to quoted messages.
-- Image: `sha256:b2e4efe1a89c35a14ef3b49417dd0af440778bf36f8158566d984f47e1a1d575`.
+- Platform image: `agentic-enterprise:action-alignment-20260922` (Linux x86_64), a
+  frontend update on `agentic-enterprise:reply-jump-20260922` aligning action-table cells.
+- Image: `sha256:7e7ee6bea8e0168d74cd7c8eafa5989789d36d1253c23dee35625fc700d8e77f`.
 - Synapse: `ghcr.io/element-hq/synapse:v1.161.0`; server name `agentic.tencent`.
 - Deployment directory: `/home/ubuntu/agentic-enterprise`.
 - Managed service: `agentic-enterprise.service`, enabled at boot and ordered after Docker
@@ -160,3 +160,10 @@ navigation in a disposable workspace, using real APIs without model calls or moc
 The prior live configuration is saved as `compose.before-reply-jump.yaml`.
 The live check passed on 2026-09-22, including reduced-motion behavior and zero
 browser errors. Evidence: `org/verification-reply-jump-20260922/final/` (private).
+
+Action-table headers and cells now align vertically in the middle, including Controls.
+Live browser measurements on 2026-09-22 showed a maximum 0.5 px center difference
+across headers and short/wrapped rows, versus up to 18 px before. Sorting, resizing
+and 390 px layout passed; existing organization and action records were unchanged.
+Evidence: `org/verification-action-alignment-20260922/` (private). Rollback configuration:
+`compose.before-action-alignment.yaml`.
