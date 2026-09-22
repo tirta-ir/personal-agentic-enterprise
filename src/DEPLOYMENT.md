@@ -178,3 +178,9 @@ npm run build
 Run `scripts/verify-decentralized.py --help` for the real HTTP/Matrix/worker smoke test.
 It requires a running controller, two real Matrix test identities and an enrolled runtime.
 No provider or Matrix mocks are used.
+
+## Tencent NetBird deployment
+
+The current private deployment at `http://10.69.0.101:18766` is documented in
+[the Tencent deployment record](DEPLOYMENT-TENCENT.md), including startup, persistence,
+authentication, and verification.
