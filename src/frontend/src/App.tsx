@@ -60,6 +60,7 @@ import { CommandInput, UsageCard, type CommandInputHandle } from "./ChatCommands
 import { GroupList } from "./GroupList";
 import { ArchivedGroups } from "./ArchivedGroups";
 import { ChatActivity, MessageModelBadge } from "./ChatActivity";
+import { ReplyQuote } from "./ReplyQuote";
 import { isActiveRun } from "./runStatus";
 import { ProjectTeam } from "./ProjectTeam";
 import { RuntimeSelect } from "./RuntimeSettings";
@@ -832,6 +833,9 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                           </button>}
                         </div>
                         <div className="message-bubble">
+                          {m.reply_to && <ReplyQuote key={`${groupId}:${m.reply_to}`} id={m.reply_to}
+                            message={messages.find(message => message.id === m.reply_to)}
+                            groupId={groupId} sideChatId={m.command === "btw" ? null : m.side_chat_id} agents={allAgents} user={user} />}
                           <div className="markdown">
                             <MessageMarkdown runId={m.run_id} onPreview={openPreview}>
                               {m.command === "btw" ? (m.body.replace(/^\s*\/btw\s*/, "") || "Side conversation") : m.body}
@@ -952,15 +956,8 @@ export default function App({role = "owner", controllerAccess = true, user = "ow
                 {!groupClosed && <div className="composer-area">
                   {reply && (
                     <div className="reply-preview">
-                      Replying to{" "}
-                      {reply.sender === user
-                        ? "you"
-                        : reply.sender === "owner" ? "Workspace owner"
-                        : reply.sender === "system"
-                          ? "Agentic Enterprise"
-                          : data?.agents.find((a) => a.id === reply.sender)
-                              ?.name ?? reply.sender}
-                      : {reply.body.slice(0, 90)}
+                      <ReplyQuote key={reply.id} id={reply.id} message={reply}
+                        groupId={groupId} sideChatId={reply.side_chat_id} agents={allAgents} user={user} />
                       <button
                         aria-label="Cancel reply"
                         onClick={() => setReply(null)}

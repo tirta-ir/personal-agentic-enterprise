@@ -1131,6 +1131,7 @@ async fn restore_group(State(app): State<App>, Path(id): Path<String>) -> ApiRes
 
 #[derive(Deserialize)]
 struct Page {
+    id: Option<String>,
     side_chat_id: Option<String>,
     #[serde(default)]
     main: bool,
@@ -1166,8 +1167,8 @@ async fn messages(
     let _: Group = app.store.get("groups", &id)?;
     let result = app.store.read(|conn| {
         validate_side_chat(conn, &id, page.side_chat_id.as_deref())?;
-        let mut query = conn.prepare("SELECT data FROM messages WHERE json_extract(data,'$.group_id')=?1 AND rowid<COALESCE((SELECT rowid FROM messages WHERE id=?2),9223372036854775807) AND (?3 IS NULL OR json_extract(data,'$.side_chat_id')=?3 OR (json_extract(data,'$.side_chat_id') IS NULL AND json_extract(data,'$.command')='reset' AND json_extract(data,'$.sender')='system')) AND (?4=0 OR json_extract(data,'$.side_chat_id') IS NULL OR json_extract(data,'$.side_chat_id')=id) ORDER BY rowid DESC LIMIT ?5")?;
-        let mut values = query.query_map(params![id,page.before,page.side_chat_id,page.main,page.limit.clamp(1,200) as i64], |row| row.get::<_,String>(0))?
+        let mut query = conn.prepare("SELECT data FROM messages WHERE json_extract(data,'$.group_id')=?1 AND rowid<COALESCE((SELECT rowid FROM messages WHERE id=?2),9223372036854775807) AND (?3 IS NULL OR json_extract(data,'$.side_chat_id')=?3 OR (json_extract(data,'$.side_chat_id') IS NULL AND json_extract(data,'$.command')='reset' AND json_extract(data,'$.sender')='system')) AND (?4=0 OR json_extract(data,'$.side_chat_id') IS NULL OR json_extract(data,'$.side_chat_id')=id) AND (?6 IS NULL OR id=?6) ORDER BY rowid DESC LIMIT ?5")?;
+        let mut values = query.query_map(params![id,page.before,page.side_chat_id,page.main,page.limit.clamp(1,200) as i64,page.id], |row| row.get::<_,String>(0))?
             .map(|value| Ok(serde_json::from_str(&value?)?)).collect::<Result<Vec<Message>>>()?;
         values.reverse();
         Ok(values)
@@ -1294,16 +1295,10 @@ pub(crate) fn submit_message(
                 && input.reply_to.is_none()),
         "Add a question after /btw to include recipients, attachments or a reply"
     );
-    if let Some(old) = existing_message(tx, &input, schedule_id.as_deref())? {
-        return Ok(old);
-    }
-    crate::agent_tools::ensure_no_reset(tx, &input.group_id, input.side_chat_id.as_deref())?;
-    let group: Group = store::get(tx, "groups", &input.group_id)?;
-    group.ensure_active()?;
     if let Some(reply) = &input.reply_to {
         let quoted: Message = store::get(tx, "messages", reply)?;
         ensure!(
-            quoted.group_id == group.id,
+            quoted.group_id == input.group_id,
             "Reply must belong to this group"
         );
         ensure!(
@@ -1311,7 +1306,22 @@ pub(crate) fn submit_message(
                 || (starts_side && quoted.side_chat_id.is_none()),
             "Reply must belong to this conversation"
         );
+        if input.recipients.is_empty()
+            && tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM agents WHERE id=?)",
+                [&quoted.sender],
+                |row| row.get::<_, bool>(0),
+            )?
+        {
+            input.recipients.push(quoted.sender);
+        }
     }
+    if let Some(old) = existing_message(tx, &input, schedule_id.as_deref())? {
+        return Ok(old);
+    }
+    crate::agent_tools::ensure_no_reset(tx, &input.group_id, input.side_chat_id.as_deref())?;
+    let group: Group = store::get(tx, "groups", &input.group_id)?;
+    group.ensure_active()?;
     for artifact in &input.artifacts {
         let a: Artifact = store::get(tx, "artifacts", artifact)?;
         ensure!(

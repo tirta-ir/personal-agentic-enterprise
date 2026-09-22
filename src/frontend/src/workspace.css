@@ -786,6 +786,30 @@ code {
   border-radius: 7px;
   margin-bottom: 5px;
 }
+.reply-quote {
+  margin: 0 0 8px;
+  padding: 8px 11px;
+  border-left: 3px solid var(--primary);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  min-width: 0;
+}
+.reply-quote strong { display: block; color: var(--primary); font-weight: 600; }
+.reply-quote span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.message-self .reply-quote { border-color: currentColor; background: rgb(0 0 0 / 12%); }
+.message-self .reply-quote strong { color: inherit; }
+.reply-preview { align-items: center; gap: 12px; }
+.reply-preview .reply-quote { flex: 1; margin: 0; }
+.reply-preview > button { flex-shrink: 0; padding: 8px; }
 .attachment-pill,
 .compose-attachments button {
   display: inline-flex;

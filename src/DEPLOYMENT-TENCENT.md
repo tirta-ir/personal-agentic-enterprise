@@ -7,10 +7,11 @@ No public HTTPS hostname or reverse-proxy route is configured for this deploymen
 
 ## Installation
 
-- Application source: `e323338d1042ff1fdd37952ffe21c109625b840a`.
-- Platform image: `agentic-enterprise:invites-20260922` (Linux x86_64), a frontend-only
-  overlay adding searchable group invitations to `agentic-enterprise:e323338-amd64`.
-- Backend base image: `sha256:82dfb08e15a6dcca93a69373802abc0f0683f8b1a1e5e18edf708c6673593698`.
+- Application source: `codex/decentralized-workspaces`, including searchable invitations,
+  worker catalog preservation, embedded replies and direct reply routing.
+- Platform image: `agentic-enterprise:replies-20260922` (Linux x86_64), rebuilt with
+  the updated backend and frontend.
+- Image: `sha256:68fc69914226230789ba4b66e44aab67012505a6289a98c2665ad63f7b7aff04`.
 - Synapse: `ghcr.io/element-hq/synapse:v1.161.0`; server name `agentic.tencent`.
 - Deployment directory: `/home/ubuntu/agentic-enterprise`.
 - Managed service: `agentic-enterprise.service`, enabled at boot and ordered after Docker
@@ -22,9 +23,9 @@ Tencent has 2 GB RAM. The image was built on mac-personal with a native ARM Rust
 compiler targeting `x86_64-unknown-linux-gnu`, then transferred directly over SSH.
 The dev build disables debug symbols. The build context, cross-build Dockerfile,
 and log are retained at `/Users/punya-tirta/ae-tencent-build-e323338`.
-The source archive SHA-256 is
+The initial deployment source archive SHA-256 was
 `df165c4dadca258ef48618daf90b8ea6a2e5464fa398e04b67daf6185c639e3c`.
-Source and imported images were verified to have identical seven filesystem layers,
+Its source and imported images were verified to have identical seven filesystem layers,
 architecture, entrypoint, command, environment, user, and working directory.
 
 ## Access and operation
@@ -123,3 +124,27 @@ The live browser check covers search, chips, keyboard selection/Escape, team and
 ancestor inclusion, sibling exclusion, branch removal, protected owners, persistence,
 empty results, duplicate prevention, and a 390 px viewport. The previous deployment
 configuration remains in `compose.before-invites.yaml` for rollback.
+
+## Embedded chat replies
+
+Replies embed the original author and message excerpt. A direct reply to an agent
+invokes that agent, and its answer quotes the triggering user message. Explicit
+mentions take precedence; human replies and ordinary room posts remain passive.
+The existing authenticated message-list endpoint supports an optional `id` filter
+for quoted messages outside the loaded page, retaining group and conversation scope.
+
+Run the real browser/worker check with a workspace, registered runtime and existing
+workdir. It creates a temporary agent/group and uses two read-only Codex turns:
+
+```sh
+node src/scripts/verify-replies.mjs /path/to/credentials.json /path/to/proof WORKSPACE_ID RUNTIME_ID WORKDIR
+```
+
+The check covers composer cancellation, both reply previews, invocation without a
+mention, retry idempotency, reload, older history, side-chat isolation, anonymous
+access rejection and a 390 px viewport. Successful runs soft-delete only their
+verification agent/group; failures retain evidence for inspection.
+The prior live image and `compose.before-replies.yaml` remain available for rollback.
+On 2026-09-22 the live check passed with two successful Windows worker runs, no
+browser errors and unchanged original agent/group records in both workspaces.
+Evidence is retained in `org/verification-replies-20260922/browser/` (private).

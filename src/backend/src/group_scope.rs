@@ -185,6 +185,75 @@ mod tests {
     use super::*;
 
     #[test]
+    fn replies_address_the_quoted_agent_once_and_preserve_scope() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let db = store::Store::open(directory.path().join("org"))?;
+        let mut ceo: Agent = db.get("agents", "ceo")?;
+        ceo.workdir = Some(crate::security::validate_workspace(
+            directory.path().to_str().unwrap(),
+        )?);
+        db.put("agents", "ceo", &ceo)?;
+        let mut other = ceo.clone();
+        other.id = "other".into();
+        other.name = "Other".into();
+        db.put("agents", "other", &other)?;
+        let send = |id: &str, reply: Option<&str>, body: &str| {
+            db.write(|conn| {
+                crate::api::submit_message(
+                    conn,
+                    crate::api::SendInput {
+                        id: id.into(),
+                        group_id: "general".into(),
+                        side_chat_id: None,
+                        body: body.into(),
+                        recipients: vec![],
+                        reply_to: reply.map(str::to_owned),
+                        artifacts: vec![],
+                    },
+                    None,
+                )
+            })
+        };
+        let human = send("human", None, "Hello")?;
+        assert!(
+            send("human-reply", Some(&human.id), "Reply to human")?
+                .recipients
+                .is_empty()
+        );
+        let mut answer = human.clone();
+        answer.id = "answer".into();
+        answer.sender = "ceo".into();
+        db.put("messages", &answer.id, &answer)?;
+        let reply = send("follow-up", Some(&answer.id), "Continue")?;
+        assert_eq!(reply.recipients, ["ceo"]);
+        assert_eq!(
+            send("follow-up", Some(&answer.id), "Continue")?.id,
+            reply.id
+        );
+        assert_eq!(db.list::<Run>("runs")?.len(), 1);
+        assert_eq!(
+            send("override", Some(&answer.id), "@other check this")?.recipients,
+            ["other"]
+        );
+        answer.group_id = "elsewhere".into();
+        db.put("messages", &answer.id, &answer)?;
+        assert!(send("cross-group", Some(&answer.id), "Continue").is_err());
+        answer.group_id = "general".into();
+        answer.side_chat_id = Some("private-side".into());
+        db.put("messages", &answer.id, &answer)?;
+        assert!(send("cross-side", Some(&answer.id), "Continue").is_err());
+        answer.side_chat_id = None;
+        db.put("messages", &answer.id, &answer)?;
+        let mut group: Group = db.get("groups", "general")?;
+        group.member_ids = Some(vec!["other".into()]);
+        db.put("groups", "general", &group)?;
+        assert!(send("excluded", Some(&answer.id), "Continue").is_err());
+        assert_eq!(db.list::<Run>("runs")?.len(), 2);
+        assert!(db.get::<Message>("messages", "excluded").is_err());
+        Ok(())
+    }
+
+    #[test]
     fn explicit_team_excludes_siblings_and_room_posts_do_not_dispatch() -> Result<()> {
         let directory = tempfile::tempdir()?;
         let db = store::Store::open(directory.path().join("org"))?;
