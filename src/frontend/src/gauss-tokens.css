@@ -1,0 +1,140 @@
+/* Shared product palette; see UPSTREAM.md for component and font provenance. */
+/**
+ * Gaussian semantic token layer.
+ *
+ * ONE identity, light-first. `:root` is the canonical (stylized light) theme;
+ * `.dark` overrides the same variables for the toggle. Never hard-code colors in
+ * components — consume these tokens via Tailwind utilities (bg-background, text-primary…).
+ *
+ * Variable names follow the shadcn/ui contract so shadcn primitives work unchanged,
+ * with Gaussian brand values mapped underneath.
+ */
+
+:root {
+  /* Brand scale — Gaussian royal -> electric blue */
+  --gauss-900: #0a2a6b;
+  --gauss-800: #0b3c8c;
+  --gauss-700: #1456c7;
+  --gauss-500: #2e7bff;
+  --gauss-400: #4da3ff;
+  --gauss-ink: #0b1220;
+
+  /* Surfaces & text (stylized light) */
+  --background: #fafbff;
+  --foreground: var(--gauss-ink);
+  --card: #ffffff;
+  --card-foreground: var(--gauss-ink);
+  --popover: #ffffff;
+  --popover-foreground: var(--gauss-ink);
+
+  /* Brand roles */
+  --primary: var(--gauss-700);
+  --primary-foreground: #ffffff;
+  --primary-hover: var(--gauss-800);
+  --secondary: #eef3ff;
+  --secondary-foreground: var(--gauss-900);
+  --muted: #f3f5fa;
+  --muted-foreground: #5b6472;
+  --accent: var(--gauss-500);
+  --accent-foreground: #ffffff;
+  --destructive: #e5484d;
+  --destructive-foreground: #ffffff;
+  --success: #059669;
+  --success-foreground: #ffffff;
+  --warning: #eab308;
+  --warning-foreground: #a16207;
+  --info: var(--gauss-500);
+  --info-foreground: #ffffff;
+
+  /* Lines & focus */
+  --border: #e3e8f0;
+  --input: #e3e8f0;
+  --ring: var(--gauss-500);
+
+  --radius: 0.75rem;
+
+  /* Brand effects (consumed by utilities in globals.css + Three.js via theme.config) */
+  --brand-gradient: linear-gradient(
+    160deg,
+    var(--gauss-900) 0%,
+    var(--gauss-800) 45%,
+    var(--gauss-700) 100%
+  );
+  --glow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
+    0 8px 40px -8px color-mix(in srgb, var(--accent) 55%, transparent);
+  --grid-line: color-mix(in srgb, var(--gauss-700) 8%, transparent);
+}
+
+.dark {
+  --background: #070b16;
+  --foreground: #e6ecf7;
+  --card: #0b1326;
+  --card-foreground: #e6ecf7;
+  --popover: #0b1326;
+  --popover-foreground: #e6ecf7;
+
+  --primary: var(--gauss-500);
+  --primary-foreground: #04122e;
+  --primary-hover: var(--gauss-700);
+  --secondary: #122244;
+  --secondary-foreground: #dbe6ff;
+  --muted: #101a30;
+  --muted-foreground: #93a1bc;
+  --accent: var(--gauss-400);
+  --accent-foreground: #04122e;
+  --destructive: #ff6166;
+  --destructive-foreground: #1a0203;
+  --success: #34d399;
+  --success-foreground: #04122e;
+  --warning: #eab308;
+  --warning-foreground: #ca8a04;
+  --info: var(--gauss-400);
+  --info-foreground: #04122e;
+
+  --border: #1b2742;
+  --input: #1b2742;
+  --ring: var(--gauss-400);
+
+  --grid-line: color-mix(in srgb, var(--gauss-400) 10%, transparent);
+}
+
+/* Map semantic tokens to Tailwind v4 utility namespaces */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-display: var(--font-ui);
+  --font-heading: var(--font-ui);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+}

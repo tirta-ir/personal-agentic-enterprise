@@ -1,0 +1,144 @@
+import assert from "node:assert/strict";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { expect } from "@playwright/test";
+
+export async function verifyGroupLifecycle({ page, request, call, state, until, finished, org, base, directory }) {
+  assert(process.env.AE_TEST_ORG && base !== "http://127.0.0.1:8765", "Use a fresh separate native organization");
+  page.setDefaultTimeout(15000);
+  const source = (await state()).agents.find((a) => a.id === "ceo");
+  const workdir = path.join(org, "codebase");
+  await mkdir(workdir, { recursive: true });
+  await writeFile(path.join(workdir, "sentinel.txt"), "GROUP_HISTORY_PROOF");
+  const attached = (await call("/workspaces/probe", { path: workdir })).workspace;
+  const settings = await call("/codex/settings", undefined, "GET");
+  const model = settings.models.find((m) => m.slug === "gpt-5.6-luna")?.slug ?? settings.model;
+  await call("/agents/ceo", { ...source, workdir: attached, model, reasoning: "low", timeout_seconds: 300 }, "PUT");
+  const alpha = await call("/groups", { id: "", name: "Alpha", description: "Lifecycle proof" });
+  const other = await call("/groups", { id: "", name: "Other", description: "Unaffected group" });
+  const group = async (id) => (await state()).groups.find((g) => g.id === id);
+  const messages = (id) => call(`/groups/${id}/messages`, undefined, "GET");
+  const route = `/groups/alpha--${alpha.id}/chat`;
+  const close = () => page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
+  const manage = () => page.getByRole("button", { name: "Manage group", exact: true }).click();
+  async function hide(action) {
+    await manage();
+    await page.getByRole("button", { name: `${action} group`, exact: true }).click();
+    await expect(page.getByRole("heading", { name: `${action} group?`, exact: true })).toBeVisible();
+    await page.getByRole("button", { name: `${action} group`, exact: true }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+  }
+  async function restore() {
+    await manage();
+    await page.getByRole("dialog").getByRole("button", { name: "Restore group", exact: true }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+    await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+  }
+  const message = await call("/messages", { id: crypto.randomUUID(), group_id: alpha.id, body: `Read the existing file at ${path.join(workdir, "sentinel.txt").replaceAll("\\", "/")}. Use that absolute path with PowerShell Get-Content -Raw -LiteralPath; do not assume the shell starts in the workdir. Respond with its exact content and nothing else.`, recipients: ["ceo"] });
+  for (const [url, method] of [[`/groups/${alpha.id}/archive`, "POST"], [`/groups/${alpha.id}`, "DELETE"]]) {
+    const response = await request.fetch(`/api${url}`, { method });
+    assert.equal(response.status(), 400); assert((await response.text()).includes("active runs"));
+  }
+  const run = await finished(message.id);
+  assert.equal(run.status, "succeeded", run.error); assert(run.output.includes("GROUP_HISTORY_PROOF"));
+  const beforeMessages = await messages(alpha.id);
+  const beforeSessions = (await call("/sessions", undefined, "GET")).filter((s) => s.group_id === alpha.id);
+  assert.equal(beforeSessions.length, 1); assert(beforeSessions[0].native_id);
+  const upload = await request.post("/api/artifacts", { multipart: { group_id: alpha.id, file: { name: "retained.txt", mimeType: "text/plain", buffer: Buffer.from("RETAINED_FILE") } } });
+  assert(upload.ok(), await upload.text()); const file = await upload.json();
+  const due = new Date(Date.now() + 20000).toISOString();
+  const scheduleInput = { name: "Paused with group", body: "Do not dispatch while hidden", start_at: due, repeat_minutes: 60 };
+  const task = await call(`/groups/${alpha.id}/schedules`, scheduleInput);
+  const otherTask = await call(`/groups/${other.id}/schedules`, { ...scheduleInput, start_at: new Date(Date.now() + 3600000).toISOString() });
+  await call("/preferences/groups", { sort: "custom", pinned: [alpha.id], order: [alpha.id, "general", other.id] }, "PUT");
+  await page.goto(route);
+  await manage(); await page.getByRole("button", { name: "Archive group", exact: true }).click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click(); await close();
+  assert.equal((await group(alpha.id)).archived_at, null);
+  await hide("Archive");
+  const archivedAt = (await group(alpha.id)).archived_at; assert(archivedAt);
+  assert.equal((await call(`/groups/${alpha.id}/archive`)).archived_at, archivedAt, "Archive retry is idempotent");
+  await expect(page.locator(`.group-row[data-group-id="${alpha.id}"]`)).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveCount(0);
+  await expect(page.locator(".group-status-banner")).toContainText("Archived group");
+  await page.getByRole("button", { name: "Archived groups", exact: true }).click();
+  await page.getByRole("dialog", { name: "Archived groups", exact: true }).getByRole("button", { name: "Preview Alpha", exact: true }).click();
+  await page.reload();
+  await expect(page.locator(".group-status-banner")).toContainText("Archived group");
+  const blocked = async (url, data, method = "POST") => {
+    const response = await request.fetch(`/api${url}`, { method, ...(data === undefined ? {} : { data }) });
+    assert.equal(response.status(), 400, `${method} ${url}: ${await response.text()}`);
+  };
+  for (const body of ["Blocked message", "/reset", "/usage"]) await blocked("/messages", { id: crypto.randomUUID(), group_id: alpha.id, body });
+  await blocked("/groups", { ...alpha, name: "Must not overwrite archived state", archived_at: null });
+  await blocked(`/groups/${alpha.id}/schedules`, { ...scheduleInput, start_at: new Date(Date.now() + 60000).toISOString() });
+  await blocked(`/schedules/${task.id}/enabled`, { enabled: true }, "PUT");
+  await blocked(`/schedules/${task.id}`, { ...scheduleInput, start_at: new Date(Date.now() + 60000).toISOString() }, "PUT");
+  await blocked(`/schedules/${task.id}`, undefined, "DELETE");
+  await blocked(`/artifacts/${file.id}/index`);
+  await blocked(`/artifacts/${file.id}`, undefined, "DELETE");
+  assert.equal((await request.post("/api/artifacts", { multipart: { group_id: alpha.id, file: { name: "blocked.txt", mimeType: "text/plain", buffer: Buffer.from("blocked") } } })).status(), 400);
+  await page.getByRole("button", { name: "Scheduled tasks", exact: true }).click();
+  await expect(page.getByRole("button", { name: "New task", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Knowledge", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Upload files", exact: true })).toBeDisabled();
+  assert.equal(await (await request.get(`/api/artifacts/${file.id}`)).text(), "RETAINED_FILE");
+  await page.screenshot({ path: path.join(directory, "archived-group.png"), animations: "disabled" });
+  await until(async () => Date.now() > new Date(due).getTime() + 1500, 30000);
+  assert.deepEqual(await messages(alpha.id), beforeMessages);
+  assert.deepEqual((await call("/sessions", undefined, "GET")).filter((s) => s.group_id === alpha.id), beforeSessions);
+  assert.equal((await state()).schedules.find((s) => s.id === task.id).enabled, false);
+  assert.equal((await state()).schedules.find((s) => s.id === otherTask.id).enabled, true);
+  assert.equal((await group(other.id)).archived_at, null);
+  console.log("PASS real run retained, active-run guard, archived history, paused due task and all write guards");
+  await page.goto(route); await restore();
+  await expect(page.getByRole("button", { name: "Unpin Alpha", exact: true })).toBeVisible();
+  assert.equal((await state()).schedules.find((s) => s.id === task.id).enabled, false);
+  await hide("Delete");
+  const deletedAt = (await group(alpha.id)).deleted_at; assert(deletedAt);
+  assert.equal((await call(`/groups/${alpha.id}`, undefined, "DELETE")).deleted_at, deletedAt);
+  await blocked(`/groups/${alpha.id}/archive`);
+  await page.setViewportSize({ width: 800, height: 900 });
+  await expect(page.getByRole("navigation", { name: "Deleted groups", exact: true })).toHaveCount(0);
+  await page.goto(route);
+  await expect(page.getByRole("heading", { name: "Page not found", exact: true })).toBeVisible();
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.screenshot({ path: path.join(directory, "deleted-group-hidden.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 1440, height: 980 });
+  await call("/groups/general/archive");
+  execFileSync("pwsh", ["-NoProfile", "-File", "../scripts/Stop.ps1", "-Org", org], { stdio: "ignore", timeout: 25000 });
+  execFileSync("pwsh", ["-NoProfile", "-File", "../scripts/Start.ps1", "-Org", org, "-Port", new URL(base).port], { stdio: "ignore", timeout: 25000 });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Page not found", exact: true })).toBeVisible();
+  assert.equal((await group(alpha.id)).deleted_at, deletedAt);
+  assert((await group("general")).archived_at);
+  assert.deepEqual(await messages(alpha.id), beforeMessages);
+  const retainedRun = (await state()).runs.find((r) => r.id === run.id);
+  assert.deepEqual(retainedRun, run);
+  assert.equal(await (await request.get(`/api/artifacts/${file.id}`)).text(), "RETAINED_FILE");
+  // Deleted groups remain recoverable through the authenticated API but are hidden in the product UI.
+  await call(`/groups/${alpha.id}/restore`);
+  await call(`/groups/${alpha.id}/archive`); await call(`/groups/${other.id}/archive`);
+  await page.goto("/"); await expect(page.locator(".group-row")).toHaveCount(0);
+  await expect(page.locator(".group-status-banner")).toContainText("Archived group");
+  await page.getByRole("button", { name: "Add group or section", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Create group", exact: true }).click();
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Fresh group");
+  await page.getByRole("button", { name: "Save group", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Fresh group", exact: true })).toBeVisible();
+  await call("/groups/general/restore");
+  assert.equal(await readFile(path.join(workdir, "sentinel.txt"), "utf8"), "GROUP_HISTORY_PROOF");
+  const anon = await page.context().browser().newContext({ baseURL: base });
+  for (const [url, method] of [[`/api/groups/${alpha.id}/archive`, "POST"], [`/api/groups/${alpha.id}`, "DELETE"], [`/api/groups/${alpha.id}/restore`, "POST"]]) {
+    assert.equal((await anon.request.fetch(url, { method })).status(), 401);
+    assert.equal((await request.fetch(url, { method, headers: { Origin: "https://example.com" } })).status(), 403);
+  }
+  await anon.close();
+  await blocked("/groups/missing/archive");
+  await blocked("/groups/missing/restore");
+  const proof = { groupId: alpha.id, runId: run.id, nativeSession: run.native_session_id, archivedAt, deletedAt, retainedMessages: beforeMessages.length, retainedFile: file.id, pausedSchedule: task.id, restart: true, allGroupsHidden: true, mocks: false };
+  await writeFile(path.join(directory, "group-lifecycle-proof.json"), JSON.stringify(proof, null, 2));
+  return proof;
+}

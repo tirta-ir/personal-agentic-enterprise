@@ -1,0 +1,372 @@
+.organization-view {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  padding: 30px 28px 24px;
+  background: var(--background);
+}
+.organization-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 25px;
+}
+.organization-header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.7px;
+  line-height: 1.3;
+}
+.organization-header p {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  margin-top: 7px;
+}
+.organization-header button {
+  height: 38px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+.organization-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.organization-chat-lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: -8px 0 18px;
+  font-size: 12px;
+  color: var(--foreground);
+}
+.organization-chat-lead select {
+  width: 180px;
+  height: 34px;
+}
+.organization-chat-lead > span {
+  color: var(--muted-foreground);
+}
+@media (max-width: 950px) {
+  .organization-header {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .organization-chat-lead > span {
+    display: none;
+  }
+}
+.org-canvas-frame {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--background);
+}
+.org-chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 48px;
+  padding: 12px 19px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+.org-chart-toolbar > span {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.org-chart-toolbar > span:first-child {
+  font-weight: 550;
+  color: var(--foreground);
+}
+.org-chart-toolbar i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+.org-chart-canvas {
+  flex: 1;
+  min-height: 280px;
+  position: relative;
+}
+.org-chart-hint {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 5px 16px;
+  padding: 11px 17px;
+  border-top: 1px solid var(--border);
+  background: var(--card);
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.org-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  padding: 16px;
+  text-align: left;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow:
+    0 3px 8px color-mix(in srgb, var(--gauss-900) 6%, transparent),
+    0 1px 2px color-mix(in srgb, var(--gauss-900) 6%, transparent);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.org-card:hover,
+.org-card.is-selected {
+  border-color: var(--ring);
+  box-shadow:
+    0 0 0 2px var(--border),
+    0 4px 14px color-mix(in srgb, var(--gauss-900) 8%, transparent);
+}
+.org-card.is-paused {
+  border-style: dashed;
+}
+.org-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+.org-card-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 10px;
+  font-weight: 650;
+}
+.org-card-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--primary);
+  cursor: pointer;
+}
+.org-card-edit:hover {
+  background: var(--secondary);
+}
+.org-card-edit:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.org-arrange {
+  color: var(--primary);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.org-chart-canvas .org-resize-handle {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  opacity: 0;
+}
+.org-chart-canvas .org-resize-line {
+  border-width: 1px;
+  opacity: 0;
+}
+.org-chart-canvas .react-flow__node:hover .org-resize-line,
+.org-chart-canvas .react-flow__node.selected .org-resize-line {
+  opacity: 0.55;
+}
+.org-chart-canvas .react-flow__node.dragging .org-card {
+  cursor: grabbing;
+}
+.org-layout-error {
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--destructive-ink);
+  background: color-mix(in srgb, var(--destructive) 8%, var(--card));
+}
+.org-layout-error button {
+  margin-left: 10px;
+  text-decoration: underline;
+}
+.org-card-person {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-top: 10px;
+  min-height: 42px;
+}
+.org-card .avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  font-size: 14px;
+  font-weight: 650;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gauss-900) 6%, transparent);
+}
+.org-card-identity {
+  min-width: 0;
+  flex: 1;
+}
+.org-card-harness {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+.org-card-identity strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  letter-spacing: -0.2px;
+}
+.org-card-identity > span {
+  display: block;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--muted-foreground);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-card-role {
+  margin-top: 10px;
+  min-height: 34px;
+  line-height: 17px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+.org-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 24px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.org-card-footer > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.org-card-footer svg {
+  flex-shrink: 0;
+}
+.org-card-path {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.org-card-footer > span:last-child {
+  flex-shrink: 0;
+}
+.org-card-owner {
+  background: var(--brand-gradient);
+  border-color: var(--gauss-800);
+  color: var(--primary-foreground);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--gauss-900) 14%, transparent);
+}
+.org-card-owner .org-card-kind {
+  color: var(--primary-foreground);
+}
+.org-card-owner .org-card-identity > span,
+.org-card-owner .org-card-role,
+.org-card-owner .org-card-footer {
+  color: color-mix(in srgb, var(--primary-foreground) 85%, transparent);
+}
+.org-card-owner .org-card-footer {
+  border-color: color-mix(in srgb, var(--primary-foreground) 20%, transparent);
+}
+.org-card-owner .owner-avatar {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+}
+.org-chart-canvas .react-flow__handle {
+  width: 7px;
+  height: 7px;
+  min-width: 7px;
+  min-height: 7px;
+  border: 1.5px solid var(--border);
+  background: var(--primary);
+}
+.org-chart-canvas .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--primary) 40%, var(--border));
+  stroke-width: 1.6;
+}
+.org-chart-canvas .react-flow__controls {
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--gauss-900) 9%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.org-chart-canvas .react-flow__controls-button {
+  width: 35px;
+  height: 34px;
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.org-chart-canvas .react-flow__controls-button:hover {
+  background: var(--secondary);
+}
+.org-chart-canvas .react-flow__controls-button svg {
+  width: 14px;
+  height: 14px;
+  max-width: 14px;
+  max-height: 14px;
+}
+@media (max-width: 1100px) {
+  .organization-view {
+    padding: 24px 20px 20px;
+  }
+  .org-chart-toolbar > span:last-child {
+    font-size: 10px;
+  }
+  .org-chart-hint > span:last-child {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .org-card {
+    transition: none;
+  }
+}

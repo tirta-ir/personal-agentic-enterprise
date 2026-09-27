@@ -1,0 +1,10 @@
+/target/
+/frontend/node_modules/
+/frontend/dist/
+/frontend/test-results/
+/frontend/playwright-report/
+/tools/
+*.log
+.env
+__pycache__/
+.venv/

@@ -1,0 +1,35 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource/poppins/latin-400.css";
+@import "@fontsource/poppins/latin-500.css";
+@import "@fontsource/poppins/latin-600.css";
+@import "@fontsource/poppins/latin-700.css";
+@import "@fontsource-variable/jetbrains-mono";
+@import "./gauss-tokens.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-destructive-ink: var(--destructive-ink);
+}
+
+:root {
+  --font-ui: "Poppins", ui-sans-serif, sans-serif;
+  --font-code: "JetBrains Mono Variable", ui-monospace, monospace;
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--secondary);
+  --sidebar-accent-foreground: var(--secondary-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --destructive-ink: color-mix(in srgb, var(--destructive) 70%, var(--foreground));
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  body { @apply bg-background text-foreground; font-family: var(--font-ui); }
+  html { font-family: var(--font-ui); }
+}

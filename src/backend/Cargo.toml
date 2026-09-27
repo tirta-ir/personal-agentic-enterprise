@@ -1,0 +1,47 @@
+[package]
+name = "agentic-enterprise"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
+base64 = "0.22"
+anstream = "=1.0.0"
+axum = { version = "=0.8.9", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower-http = { version = "0.6", features = ["fs", "limit", "trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.38", features = ["bundled", "backup"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+sha2 = "0.10"
+subtle = "2"
+dotenvy = "0.15"
+tempfile = "3"
+fs2 = "0.4"
+url = "2"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+futures = "0.3"
+lancedb = { version = "=0.39.0", features = ["remote"] }
+arrow-array = "58"
+arrow-schema = "58"
+fastembed = { version = "=7.0.1", default-features = false, features = ["ort-load-dynamic", "hf-hub-native-tls", "image-models"] }
+ts-rs = { version = "11", features = ["serde-json-impl"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+toml = "1"
+
+[target.'cfg(windows)'.dependencies]
+cccc-windows-process = { path = "../vendor/cccc-windows-process" }
+win32job = "2.0.3"
+windows-sys = { version = "0.61", features = ["Win32_Security_Cryptography", "Win32_Foundation"] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.30", features = ["signal"] }
+rustix = { version = "1", features = ["process"] }
