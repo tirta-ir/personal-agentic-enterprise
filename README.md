@@ -28,3 +28,7 @@ npm run build
 ```
 
 See [platform documentation](src/README.md), [deployment and worker setup](src/DEPLOYMENT.md), [verification](src/VERIFICATION.md), and [upstream sources](src/UPSTREAM.md). `org/` and `workdir/` contain local state and attached codebases; both are excluded from Git.
+
+## License
+
+Original project code is licensed under the Apache License 2.0. Third-party components retain their respective licenses; see [LICENSE](LICENSE) and [upstream notices](src/UPSTREAM.md).
