@@ -77,7 +77,22 @@ pub fn organization_context(app: &App, agent_id: &str) -> Result<OrganizationCon
             lead(conn)?.map(|a| a.id),
         ))
     })?;
-    build_organization_context(agents, agent_id, chat_lead_id)
+    let mut context = build_organization_context(agents.clone(), agent_id, chat_lead_id)?;
+    for member in &mut context.members {
+        if let Some(agent) = agents.iter().find(|a| a.id == member.id) {
+            if let Some(runtime) = agent.workdir.as_ref().and_then(|w| w.runtime_id.as_deref()) {
+                member.unavailable_reason = if !agent.enabled {
+                    Some("Agent is paused".into())
+                } else {
+                    crate::fleet::settings(app, runtime, agent.harness)
+                        .err()
+                        .map(|e| e.to_string())
+                };
+                member.available = member.unavailable_reason.is_none();
+            }
+        }
+    }
+    Ok(context)
 }
 
 fn build_organization_context(
@@ -95,7 +110,7 @@ fn build_organization_context(
         project: None,
         group_access: None,
         captured_at: now(),
-        owner_name: "Owner".into(),
+        owner_name: "Workspace owner".into(),
         agent_id: agent_id.into(),
         chat_lead_id,
         manager_id: manager_id.clone(),
@@ -230,7 +245,7 @@ pub fn enqueue(
         .workdir
         .as_ref()
         .context("Attach a workdir to the selected agent first")?;
-    if workspace.ssh_host.is_none() {
+    if workspace.ssh_host.is_none() && workspace.runtime_id.is_none() {
         security::revalidate(workspace)?;
     }
     let session: Option<(String, Option<String>)> = conn.query_row(
@@ -696,6 +711,7 @@ mod tests {
         let db = store::Store::open(directory.path().join("org"))?;
         let mut ceo: Agent = db.get("agents", "ceo")?;
         ceo.workdir = Some(Workspace {
+            runtime_id: None,
             ssh_host: None,
             path: directory.path().to_string_lossy().into(),
             canonical_path: directory.path().canonicalize()?.to_string_lossy().into(),

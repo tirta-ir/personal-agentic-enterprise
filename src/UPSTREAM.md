@@ -47,7 +47,7 @@ Final generation prompt:
 
 Chat bubbles adapt the left/right alignment, 85% width limit, rounded shape and owner `bg-primary/text-primary-foreground` contract from the supplied Gauss repository's `src/components/chat/chat-bubble.tsx` at the revision below. The existing message renderer retains replies, attachments, run evidence, delivery status and system usage cards. Agent bubbles extend Gauss secondary/card tokens with a pale-blue-to-white gradient; owner Markdown uses inverse tokens for readable links, code and tables. Main and side chats use this same renderer.
 
-The product theme uses a shared blue semantic palette, Poppins and JetBrains Mono. Adapted tokens live in `frontend/src/gauss-tokens.css`; application CSS and Base UI primitives consume those variables. Poppins and JetBrains Mono are self-hosted through Fontsource packages. Their OFL licenses are retained in `vendor/POPPINS-LICENSE` and `vendor/JETBRAINS-MONO-LICENSE`.
+The product theme uses a shared blue semantic palette, Poppins and JetBrains Mono. Adapted tokens live in `frontend/src/gauss-tokens.css`; application CSS and Base UI primitives consume those variables. Font licenses are retained under `vendor`.
 
 Direct SPA pages reuse installed tower-http 0.6.11's `ServeDir::fallback(ServeFile)` to retain the HTML response's HTTP 200, instead of `not_found_service`, which explicitly overrides it to 404. The existing separate unknown-API route still returns 404; security middleware remains shared. Verified against the installed crate's `src/services/fs/serve_dir/mod.rs` documentation and real native HTTP requests.
 
@@ -144,3 +144,6 @@ Codex and OpenCode SVG logos are vendored unchanged from [Lobe Icons](https://gi
 ## Native OpenCode providers (2026-09-20)
 
 Reuse the same pinned OpenCode v2 source's `packages/server/src/handlers/model.ts` for the native available/default model APIs, `packages/util/src/global-roots.ts` for workstation config/data discovery, and `packages/core/src/credential/sql.ts` for credential-only borrowing. The existing Codex compare-before-copyback pattern is applied to native credential refreshes through the already-installed SQLite libraries. The installed CLI initializes scoped database schemas; platform code never copies native chat history. No provider/model allowlist, pricing filter or new dependency. Catalog reads use workstation global/project configuration and saved native logins; runtime storage remains organization-scoped.
+
+
+Decentralized workspaces (2026-09-21) use the upstream `matrix-sdk` 0.18.0 dependency for actual Matrix login, room membership, sync and message delivery. The persistent worker registration/claim/outbox architecture was independently implemented after comparing Multica; no Multica source was copied. The worker container uses a modified Apache-2.0 Moby seccomp profile; its pinned source and changes are recorded in [vendor/docker-worker-seccomp.md](vendor/docker-worker-seccomp.md), with [license](vendor/MOBY-PROFILES-LICENSE). Existing Paperclip execution contracts and CCCC process ownership remain in use.

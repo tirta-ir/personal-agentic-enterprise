@@ -1,8 +1,10 @@
 import {
+  type ReactNode,
   lazy,
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -38,6 +40,9 @@ import {
   LogOut,
   PanelRightClose,
   Users,
+  Server,
+  UserRound,
+  Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,12 +57,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { CommandInput, UsageCard } from "./ChatCommands";
+import { CommandInput, UsageCard, type CommandInputHandle } from "./ChatCommands";
 import { GroupList } from "./GroupList";
 import { ArchivedGroups } from "./ArchivedGroups";
 import { ChatActivity, MessageModelBadge } from "./ChatActivity";
+import { ReplyQuote } from "./ReplyQuote";
 import { isActiveRun } from "./runStatus";
 import { ProjectTeam } from "./ProjectTeam";
+import { RuntimeSelect, HarnessSelect } from "./RuntimeSettings";
+import { availableHarnesses, type RegisteredRuntime } from "./runtimeCatalog";
+import { NewAgentDialog } from "./NewAgentDialog";
 import { WorkstationSelect } from "./WorkstationSelect";
 import { UserSettings } from "./UserSettings";
 import type { Workstation } from "./bindings/Workstation";
@@ -133,7 +142,7 @@ function chatMessagesPath(groupId: string, side: string | null, before?: string)
   if (before) query.set("before", before);
   return `/groups/${groupId}/messages?${query}`;
 }
-export default function App() {
+export default function App({role = "owner", controllerAccess = true, user = "owner", workspaceName = "My workspace", workspaceSettings}: {role?: string; controllerAccess?: boolean; user?: string; workspaceName?: string; workspaceSettings?: ReactNode}) {
   const [data, setData] = useState<StateView | null>(null);
   const [catalog, setCatalog] = useState<CodexSettings | null>(null);
   const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 767px)").matches);
@@ -157,7 +166,7 @@ export default function App() {
   const routeError =
     !route.valid ||
     (data &&
-      ((!["Organization", "Action board", "User settings"].includes(route.view) &&
+      ((!["Organization", "Action board", "User settings", "Profile", "Workspace settings"].includes(route.view) &&
         !data.groups.some((g) => g.id === groupId)) ||
         (selectedAgent && !data.agents.some((a) => a.id === selectedAgent)) ||
         (route.runId && !selectedRun)));
@@ -186,13 +195,16 @@ export default function App() {
   const [ownerKey, setOwnerKey] = useState("");
   const [loadedMessages, setMessages] = useState<Message[]>([]);
   const [messagesScope, setMessagesScope] = useState("");
-  const messages = messagesScope === `${groupId}:${sideChatId ?? "main"}` ? loadedMessages : [];
+  const messages = useMemo(() => messagesScope === `${groupId}:${sideChatId ?? "main"}` ? loadedMessages : [], [messagesScope, groupId, sideChatId, loadedMessages]);
+  const latestMessageId = messages.at(-1)?.id;
   const [error, setError] = useState("");
   const [deletedAgentsOpen, setDeletedAgentsOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const [reply, setReply] = useState<Message | null>(null);
+  const [replyTarget, setReplyTarget] = useState<Message | null>(null);
+  const loadedScope = useRef("");
   const [runEvents, setRunEvents] = useState<Event[]>([]);
   const [filePreview, setFilePreview] = useState<{ file: MarkdownFile; scope: string } | null>(null);
   const previewTrigger = useRef<HTMLElement | null>(null);
@@ -221,6 +233,7 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
   const cursor = useRef(0);
   const panelGroup = useRef<HTMLDivElement>(null);
   const pendingMessage = useRef<{ fingerprint: string; id: string } | null>(
@@ -239,7 +252,7 @@ export default function App() {
         },
         (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
       ),
-    [],
+    [setError],
   );
   const refresh = useCallback(async () => {
     const response = await api<StateView>("/state");
@@ -252,14 +265,19 @@ export default function App() {
       ? await api<Message[]>(chatMessagesPath(id, side))
       : [];
     if (id === groupRef.current.groupId && side === groupRef.current.sideChatId) {
-      setMessages(next);
-      setMessagesScope(`${id}:${side ?? "main"}`);
+      const scope = `${id}:${side ?? "main"}`;
+      const sameScope = loadedScope.current === scope;
+      loadedScope.current = scope;
+      if (!sameScope) followLatest.current = true;
+      // Keep paginated history mounted when live events refresh the newest page.
+      setMessages(current => sameScope && next.length ? [...new Map([...current, ...next].map(message => [message.id, message])).values()] : next);
+      setMessagesScope(scope);
     }
-  }, []);
+  }, [setMessages, setMessagesScope]);
   useEffect(() => {
-    if (!authenticated) return;
+    if (!authenticated || !controllerAccess) return;
     void perform(async () => setCatalog(await api<CodexSettings>("/codex/settings")), false);
-  }, [authenticated, catalogRevision, perform]);
+  }, [authenticated, catalogRevision, perform, controllerAccess]);
   useEffect(() => {
     void perform(async () => {
       const fragment = new URLSearchParams(location.hash.slice(1)).get("key");
@@ -269,6 +287,7 @@ export default function App() {
       }
       try {
         await refresh();
+        setConnected(true);
         setAuthenticated(true);
       } catch (e) {
         if (e instanceof ApiFailure && e.status === 401)
@@ -291,6 +310,7 @@ export default function App() {
   }, [authenticated, data, routeError, route, groupId, selectedAgent]);
   useEffect(() => {
     if (!authenticated) return;
+    if (role !== "owner") { const poll = setInterval(() => {void refresh().then(()=>setConnected(true), (e: unknown)=>{setConnected(false);setError(e instanceof Error?e.message:String(e));});}, 2000); return () => clearInterval(poll); }
     let timer: ReturnType<typeof setTimeout> | null = null;
     const source = new EventSource(`/api/events?after=${cursor.current}`);
     source.onopen = () => setConnected(true);
@@ -306,13 +326,50 @@ export default function App() {
       source.close();
       if (timer) clearTimeout(timer);
     };
-  }, [authenticated, perform, refresh]);
+  }, [authenticated, perform, refresh, role]);
   useEffect(() => {
     if (authenticated) void perform(refresh);
   }, [groupId, sideChatId, authenticated, perform, refresh]);
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "instant" });
-  }, [messages.length]);
+    if (followLatest.current) bottom.current?.scrollIntoView({ behavior: "instant" });
+  }, [latestMessageId]);
+  useEffect(() => {
+    if (!replyTarget) return;
+    let cancelled = false;
+    const frame = requestAnimationFrame(() => {
+      if (replyTarget.group_id !== groupId || replyTarget.side_chat_id !== sideChatId) {
+        setReplyTarget(null);
+        return;
+      }
+      if (messagesScope !== `${groupId}:${sideChatId ?? "main"}` || !messages.length) return;
+      const target = document.getElementById(`message-${replyTarget.id}`);
+      if (target) {
+        followLatest.current = false;
+        target.scrollIntoView({ behavior: "instant", block: "center" });
+        target.focus({ preventScroll: true });
+        if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          target.animate([{ backgroundColor: "#bed5ff" }, { backgroundColor: "transparent" }], { duration: 1800 });
+        }
+        setReplyTarget(null);
+        return;
+      }
+      void api<Message[]>(`${chatMessagesPath(groupId, sideChatId, messages[0].id)}&limit=200`).then(older => {
+        if (cancelled) return;
+        if (!older.length) {
+          setError("Original message is no longer available in this conversation.");
+          setReplyTarget(null);
+        } else {
+          setMessages(current => [...new Map([...older, ...current].map(message => [message.id, message])).values()]);
+        }
+      }, (reason: unknown) => {
+        if (!cancelled) {
+          setError(reason instanceof Error ? reason.message : String(reason));
+          setReplyTarget(null);
+        }
+      });
+    });
+    return () => { cancelled = true; cancelAnimationFrame(frame); };
+  }, [replyTarget, groupId, sideChatId, messagesScope, messages]);
   useEffect(() => {
     if (selectedRun)
       void perform(async () =>
@@ -326,10 +383,10 @@ export default function App() {
   const allAgents = [...organizationAgents, ...(data?.deleted_agents ?? [])];
   const groupAccess = data?.group_access?.[groupId];
   const participants = organizationAgents.filter((agent) => !groupAccess || groupAccess.participant_ids.includes(agent.id));
-  const chatLead = participants.find((a) => a.id === (groupAccess ? groupAccess.chat_lead_id : data?.chat_lead_id));
+  const composerInput = useRef<CommandInputHandle>(null);
   const mentionedAgents = /@all\b/i.test(draft)
     ? participants.filter((a) => a.enabled)
-    : organizationAgents.filter((a) =>
+    : participants.filter((a) =>
         draft.toLowerCase().includes(`@${a.name.toLowerCase()}`) || draft.includes(`@${a.id}`),
       );
   const running =
@@ -347,7 +404,7 @@ export default function App() {
         group_id: groupId,
         body: draft,
         side_chat_id: sideChatId,
-        recipients: /^\/(?:reset|usage)(?:\s|$)/.test(draft.trim()) ? [] : mentionedAgents.map((a) => a.id),
+        recipients: [], // The server resolves complete mentions and enforces room membership.
         reply_to: reply?.id ?? null,
         artifacts: attachments,
       };
@@ -357,6 +414,7 @@ export default function App() {
       const sent = await post<Message>("/messages", { id: pendingMessage.current.id, ...content });
       if (sent.command === "btw" && sent.side_chat_id) go({ sideChatId: sent.side_chat_id, view: "Chat" });
       pendingMessage.current = null;
+      followLatest.current = true;
       setDraft("");
       setReply(null);
       setAttachments([]);
@@ -460,22 +518,23 @@ export default function App() {
               <img className="brand-mark" src="/agentic-enterprise-logo.png" alt="Agentic Enterprise logo" width={44} height={44} />
               <div>
                 <strong>Agentic Enterprise</strong>
-                <span>Personal workspace</span>
+                <span>{workspaceName}</span>
               </div>
             </div>
-            <button
+            {role === "owner" && <button
               className="search-button"
               onClick={() => setSearchOpen(true)}
             >
               <Search size={16} /> Search your workspace <kbd>⌕</kbd>
-            </button>
+            </button>}
             {data && (
               <GroupList
+                readOnly={role !== "owner"}
                 groups={data.groups}
                 preferences={data.group_preferences}
-                selected={["Organization", "Action board"].includes(tab) ? null : groupId}
+                selected={["Organization", "Action board", "User settings", "Profile", "Workspace settings"].includes(tab) ? null : groupId}
                 running={data.runs.filter(active).map((r) => r.group_id)}
-                onCreate={() => setGroupEditor({ id: "", name: "", description: "", project:null, scope_levels: null, chat_lead_id: null, archived_at: null, deleted_at: null })}
+                onCreate={() => setGroupEditor({ id: "", name: "", description: "", member_ids: [], human_ids: [], project:null, scope_levels: null, chat_lead_id: null, archived_at: null, deleted_at: null })}
                 onCreateProject={() => setGroupEditor({ id:"", name:"", description:"", project:{workdir:{path:"",canonical_path:"",git_root:null,ssh_host:null},members:[]},scope_levels:null,chat_lead_id:null,archived_at:null,deleted_at:null })}
                 onSave={async (preferences) => {
                   await put("/preferences/groups", preferences);
@@ -489,7 +548,7 @@ export default function App() {
               />
             )}
             <div className="sidebar-bottom">
-              <nav className="sidebar-shortcuts" aria-label="Workspace settings">
+              {role === "owner" && <nav className="sidebar-shortcuts" aria-label="Workspace tools">
                 <button className={`organization-button ${tab === "Action board" ? "selected" : ""}`} onClick={() => go({view:"Action board",agentId:null,runId:null})}><ListChecks size={18}/><span>Action board</span><ChevronRight size={15}/></button>
                 <button
                   className={`organization-button ${tab === "Organization" ? "selected" : ""}`}
@@ -501,26 +560,25 @@ export default function App() {
                   <span>Organization</span>
                   <ChevronRight size={15} />
                 </button>
-              </nav>
+              </nav>}
               <div className="owner-row">
                 <Avatar owner />
-                <button className="owner-settings" aria-label="User settings" title="User settings" onClick={() => go({ view: "User settings", agentId: null, runId: null })}>
-                  <strong>Owner</strong>
-                  <small>Settings</small>
+                <button className="owner-settings" aria-label="User settings" title={`User settings · ${user}`} onClick={() => go({ view: "Profile", agentId: null, runId: null })}>
+                  <strong>{user}</strong>
                 </button>
-                <button
+                {role === "owner" && <button
                   aria-label="Archived groups"
                   title="Archived groups"
                   onClick={() => setArchiveOpen(true)}
                 >
                   <Archive size={17} />
-                </button>
+                </button>}
                 <button
                   aria-label="Sign out"
                   onClick={() =>
                     void perform(async () => {
                       await post("/logout");
-                      setAuthenticated(false);
+                      location.reload();
                     })
                   }
                 >
@@ -603,7 +661,7 @@ export default function App() {
                 </Button>
               </div>
             )}
-            {tab !== "Organization" && tab !== "Action board" && tab !== "User settings" && tab !== "NotFound" && (
+            {tab !== "Organization" && tab !== "Action board" && tab !== "User settings" && tab !== "Profile" && tab !== "Workspace settings" && tab !== "NotFound" && (
               <>
                 <header className="topbar">
                   <div className="group-title">
@@ -633,20 +691,20 @@ export default function App() {
                             <li key={a.id}>
                               <Avatar agent={a} />
                               <div><strong>{a.name}</strong><span>{a.position || a.role}</span></div>
-                              {!a.enabled ? <Badge variant="outline">Paused</Badge> : a.id === chatLead?.id && <Badge variant="secondary">Chat lead</Badge>}
+                              {!a.enabled ? <Badge variant="outline">Paused</Badge> : null}
                             </li>
                           ))}
                         </ul>
                         {participants.length === 0 && <p>No agents in this group’s chat scope.</p>}
                       </DialogContent>
                     </Dialog>
-                    <Button
+                    {role === "owner" && <Button
                       variant="outline"
                       size="sm"
                       onClick={() => group && setGroupEditor(group)}
                     >
                       <Settings2 size={14} /> {group?.project?"Manage project":"Manage group"}
-                    </Button>
+                    </Button>}
                   </div>
                 </header>
                 {groupClosed && <div className="group-status-banner" role="status">
@@ -663,7 +721,7 @@ export default function App() {
                       ["Actions", ListChecks],
                       ["Structure", Network],
                     ] as const
-                  ).filter(([name]) => name !== "Structure" || !!group?.project).map(([name, Icon]) => (
+                  ).filter(([name]) => (role === "owner" || name === "Chat") && (name !== "Structure" || !!group?.project)).map(([name, Icon]) => (
                     <button
                       className={tab === name ? "active" : ""}
                       key={name}
@@ -716,7 +774,10 @@ export default function App() {
             )}
             {tab === "Chat" && (
               <>
-                <div className="timeline">
+                <div className="timeline" onScroll={event => {
+                  const node = event.currentTarget;
+                  followLatest.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+                }}>
                   {sideChatId && (
                     <div className="side-chat-header" role="region" aria-label="Side chat">
                       <Button variant="outline" size="sm" onClick={() => go({ sideChatId: null })}>Back to main chat</Button>
@@ -774,10 +835,12 @@ export default function App() {
                     </div>
                   )}
                   {messages.map((m) => {
+                    const isSelf = m.sender === user;
+                    const isHuman = m.sender === "owner" || m.sender.startsWith("@");
                     const sender = allAgents.find((a) => a.id === m.sender);
                     const position = sender?.position || data?.runs.find((run) => run.id === m.run_id)?.profile.position;
                     return (
-                    <article className={`message message-${m.sender === "owner" ? "owner" : m.sender === "system" ? "system" : "agent"}`} key={m.id}>
+                    <article id={`message-${m.id}`} tabIndex={-1} className={`message message-${isSelf ? "self" : m.sender === "system" ? "system" : isHuman ? "human" : "agent"}`} key={m.id}>
                       {m.sender === "system" ? (
                         <div className="avatar system-avatar">
                           <Slash size={17} />
@@ -785,23 +848,23 @@ export default function App() {
                       ) : (
                         <Avatar
                           agent={allAgents.find((a) => a.id === m.sender)}
-                          owner={m.sender === "owner"}
+                          owner={isHuman}
                         />
                       )}
                       <div className="message-content">
                         <div className="message-heading">
                           <strong>
-                            {m.sender === "system"
+                            {isSelf ? "You" : m.sender === "system"
                               ? "Agentic Enterprise"
                               : m.sender === "owner"
-                                ? "Owner"
+                                ? "Workspace owner"
                                 : (allAgents.find((a) => a.id === m.sender)
                                     ?.name ?? m.sender)}
                           </strong>
-                          {m.sender !== "owner" && m.sender !== "system" && position && (
+                          {!isHuman && m.sender !== "system" && position && (
                             <span className="bot-badge" title={position}>{position}</span>
                           )}
-                          {m.sender !== "owner" && m.sender !== "system" && m.run_id && (
+                          {!isHuman && m.sender !== "system" && m.run_id && (
                             <MessageModelBadge runId={m.run_id} run={data?.runs.find((r) => r.id === m.run_id)} catalog={catalog} />
                           )}
                           {m.schedule_id && (
@@ -823,8 +886,15 @@ export default function App() {
                           </button>}
                         </div>
                         <div className="message-bubble">
+                          {m.reply_to && <ReplyQuote key={`${groupId}:${m.reply_to}`} id={m.reply_to}
+                            message={messages.find(message => message.id === m.reply_to)}
+                            groupId={groupId} sideChatId={m.command === "btw" ? null : m.side_chat_id} agents={allAgents} user={user}
+                            jumping={replyTarget?.id === m.reply_to} onJump={message => {
+                              setReplyTarget(message);
+                              if (message.side_chat_id !== sideChatId) go({ sideChatId: message.side_chat_id });
+                            }} />}
                           <div className="markdown">
-                            <MessageMarkdown runId={m.run_id} onPreview={openPreview}>
+                            <MessageMarkdown runId={m.run_id} onPreview={openPreview} agents={allAgents} onMention={setSelectedAgent}>
                               {m.command === "btw" ? (m.body.replace(/^\s*\/btw\s*/, "") || "Side conversation") : m.body}
                             </MessageMarkdown>
                           </div>
@@ -848,7 +918,7 @@ export default function App() {
                             </a>;
                           })}
                         </div>
-                        {!sideChatId && m.side_chat_id === m.id && (
+                        {!sideChatId && m.command === "btw" && m.side_chat_id === m.id && (
                           <Button variant="outline" size="sm" onClick={() => go({ sideChatId: m.id })}>Open side chat</Button>
                         )}
                         {m.usage_report && (
@@ -867,7 +937,7 @@ export default function App() {
                             <Check size={13} /> View execution evidence
                           </button>
                         )}
-                        {m.sender === "owner" &&
+                        {isHuman &&
                           data?.runs
                             .filter((r) => r.message_id === m.id)
                             .map((r) => (
@@ -943,14 +1013,8 @@ export default function App() {
                 {!groupClosed && <div className="composer-area">
                   {reply && (
                     <div className="reply-preview">
-                      Replying to{" "}
-                      {reply.sender === "owner"
-                        ? "you"
-                        : reply.sender === "system"
-                          ? "Agentic Enterprise"
-                          : data?.agents.find((a) => a.id === reply.sender)
-                              ?.name}
-                      : {reply.body.slice(0, 90)}
+                      <ReplyQuote key={reply.id} id={reply.id} message={reply}
+                        groupId={groupId} sideChatId={reply.side_chat_id} agents={allAgents} user={user} />
                       <button
                         aria-label="Cancel reply"
                         onClick={() => setReply(null)}
@@ -963,6 +1027,8 @@ export default function App() {
                     <CommandInput
                       key={`${groupId}:${sideChatId ?? "main"}`}
                       value={draft}
+                      agents={participants}
+                      ref={composerInput}
                       onChange={setDraft}
                       onSend={() => void send()}
                       busy={busy}
@@ -987,6 +1053,7 @@ export default function App() {
                       </div>
                     )}
                     <div className="composer-footer">
+                      <button aria-label="Mention an agent" onMouseDown={e=>e.preventDefault()} onClick={()=>composerInput.current?.openMentions()}> @ </button>
                       <button
                         aria-label="Attach file"
                         onClick={() => uploadRef.current?.click()}
@@ -1000,9 +1067,7 @@ export default function App() {
                             : draft.trim().startsWith("/btw") ? "Opens an independent side chat with main-chat context. Add a question to start work." : "Chat commands run directly in your workspace."
                           : mentionedAgents.length > 0
                             ? `Sending to ${mentionedAgents.map((a) => a.name).join(", ")}.`
-                            : chatLead
-                              ? `${chatLead.name} will handle your message and delegate when needed.`
-                              : "Choose an enabled chat lead within this group's scope in Manage group."}
+                            : "Room message · mention an agent to start work."}
                       </span>
                       <Button
                         aria-label="Send message"
@@ -1093,12 +1158,20 @@ export default function App() {
               />
             )}
             {(tab === "Action board" || tab === "Actions") && data && <ActionBoard key={tab === "Actions" ? groupId : "organization"} data={data} groupId={tab === "Actions" ? groupId : undefined} onRefresh={refresh} onOpenRun={(groupId,runId)=>go({groupId,view:"Runs",runId,agentId:null})}/>}
-            {tab === "User settings" && <UserSettings workstations={data?.workstations ?? []} onRefresh={refresh}/>}
+            {["Profile", "User settings", "Workspace settings"].includes(tab) && <section className="user-settings-shell" aria-label="User settings">
+              <header className="settings-shell-heading"><h1>User settings</h1><nav className="settings-tabs" aria-label="User settings sections">
+                <Button variant={tab === "Profile" ? "secondary" : "ghost"} aria-current={tab === "Profile" ? "page" : undefined} onClick={()=>go({view:"Profile",agentId:null,runId:null})}><UserRound size={16}/>Profile</Button>
+                <Button variant={tab === "User settings" ? "secondary" : "ghost"} aria-current={tab === "User settings" ? "page" : undefined} onClick={()=>go({view:"User settings",agentId:null,runId:null})}><Server size={16}/>Runtime</Button>
+                <Button variant={tab === "Workspace settings" ? "secondary" : "ghost"} aria-current={tab === "Workspace settings" ? "page" : undefined} onClick={()=>go({view:"Workspace settings",agentId:null,runId:null})}><Building2 size={16}/>Workspace</Button>
+              </nav></header>
+            {tab === "Profile" && <section className="user-settings"><div className="settings-page"><header className="settings-page-heading"><p className="settings-kicker">ACCOUNT</p><h1>Profile</h1><p>Your signed-in account and workspace access.</p></header><section className="settings-card"><div className="settings-section-title"><UserRound size={20}/><h2>{user}</h2></div><dl className="profile-details"><dt>Account</dt><dd>{user === "owner" ? "Platform administrator" : "Matrix account"}</dd><dt>Workspace</dt><dd>{workspaceName}</dd><dt>Role</dt><dd>{role === "owner" ? "Owner" : "Member"}</dd></dl></section></div></section>}
+            {tab === "Workspace settings" && <section className="user-settings"><div className="settings-page"><header className="settings-page-heading"><p className="settings-kicker">SETTINGS</p><h1>Workspace</h1><p>Manage your workspace, people, and their access.</p></header>{workspaceSettings}</div></section>}
+            {tab === "User settings" && <UserSettings role={role} user={user} controllerAccess={controllerAccess} workstations={data?.workstations ?? []} onRefresh={refresh}/>}
+            </section>}
             {tab === "Structure" && group?.project && data && <div className="project-structure-view">{projectTeamOpen && <ProjectTeam key={`${group.id}:${JSON.stringify(group.project.members)}`} group={group} agents={data.agents} onSaved={refresh} onClose={() => setProjectTeamOpen(false)} onAdd={() => { setNewAgentProject(groupId); setNewAgent(true); }}/>}<Suspense fallback={<div className="empty-state">Opening project structure…</div>}><OrganizationChart key={groupId} workstations={data.workstations ?? []}
               projectName={group.name} layoutPath={`/organization/layout?group_id=${encodeURIComponent(groupId)}`}
               agents={data.agents.filter(a=>group.project!.members.some(m=>m.agent_id===a.id)).map(a=>({...a,reports_to:group.project!.members.find(m=>m.agent_id===a.id)?.manager_id??null,workdir:group.project!.workdir}))}
-              connections={Object.fromEntries(group.project.members.map(m=>[m.agent_id,data.project_connections?.[groupId]]))} savedLayout={data.project_layouts?.[groupId]??{}} chatLeadId={data.group_access[groupId]?.chat_lead_id??null}
-              onChatLeadChange={id=>void perform(async()=>{await post("/groups",{...group,chat_lead_id:id});await refresh();})}
+              connections={Object.fromEntries(group.project.members.map(m=>[m.agent_id,data.project_connections?.[groupId]]))} savedLayout={data.project_layouts?.[groupId]??{}}
               onDeletedAgents={()=>setProjectTeamOpen(true)} selected={selectedAgent} onSelect={id => go({ agentId: id, section: "Profile", runId: null })}
               onAdd={()=>{setNewAgentProject(groupId);setNewAgent(true);}}/></Suspense></div>}
             {tab === "Organization" && (
@@ -1112,13 +1185,6 @@ export default function App() {
                   agents={(data?.agents ?? []).map(a=>a.project_id?{...a,workdir:data?.groups.find(g=>g.id===a.project_id)?.project?.workdir??a.workdir}:a)}
                   connections={data?.connections ?? {}}
                   savedLayout={data?.organization_layout ?? {}}
-                  chatLeadId={data?.chat_lead_id ?? null}
-                  onChatLeadChange={(agent_id) =>
-                    void perform(async () => {
-                      await put("/organization/chat-lead", { agent_id });
-                      await refresh();
-                    })
-                  }
                   onDeletedAgents={() => setDeletedAgentsOpen(true)}
                   selected={selectedAgent}
                   onSelect={(id) => {
@@ -1148,6 +1214,7 @@ export default function App() {
               groupName={group?.name ?? "this group"} readOnly={groupClosed} />}
             {agent && !preview && (
               <AgentInspector
+                controllerAccess={controllerAccess}
                 key={`${agent.id}-${agent.revision}`}
                 agent={agent}
                 workstations={data?.workstations ?? []}
@@ -1247,92 +1314,14 @@ export default function App() {
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={newAgent} onOpenChange={setNewAgent}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add your agent</DialogTitle>
-            <DialogDescription>
-              Give it a name, position, and role. Attach its codebase next.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="form-stack"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const fields = new FormData(e.currentTarget);
-              void perform(async () => {
-                const a = await post<Agent>("/agents", {
-                  id: "",
-                  name: String(fields.get("name")),
-                  project_id: String(fields.get("project_id")??"") || null,
-                  position: String(fields.get("position") ?? ""),
-                  role: String(fields.get("role")),
-                  color: getComputedStyle(document.documentElement).getPropertyValue("--gauss-700").trim(),
-                  harness: String(fields.get("harness") || "codex"),
-                  model: "",
-                  reasoning: "",
-                  reports_to: String(fields.get("reports_to") ?? "") || null,
-                  instructions:
-                    "Work carefully. Explain your changes and verify the result.",
-                  agents_md: "",
-                  workdir: null,
-                  permission: fields.get("harness") === "opencode" ? "danger-full-access" : "read-only",
-                  timeout_seconds: 1800,
-                  enabled: true,
-                  deleted_at: null,
-                  revision: 1,
-                });
-                await refresh();
-                setNewAgent(false);
-                if (a.project_id) { setProjectTeamOpen(true); go({ groupId: a.project_id, view: "Structure", agentId: a.id, section: "Profile", runId: null }); }
-                else setSelectedAgent(a.id);
-              });
-            }}
-          >
-            <Label htmlFor="agent-project">Agent scope</Label>
-            <select id="agent-project" name="project_id" defaultValue={newAgentProject}><option value="">Organization agent</option>{data?.groups.filter(g=>g.project&&!g.archived_at).map(g=><option key={g.id} value={g.id}>Project: {g.name}</option>)}</select>
-            <Label htmlFor="agent-harness">Harness</Label>
-            <select id="agent-harness" name="harness" defaultValue="codex"><option value="codex">Codex CLI</option><option value="opencode">OpenCode</option></select>
-            <Label htmlFor="agent-name">Name</Label>
-            <Input
-              id="agent-name"
-              name="name"
-              placeholder="Engineer"
-              required
-              maxLength={80}
-            />
-            <Label htmlFor="agent-position">Position</Label>
-            <Input
-              id="agent-position"
-              name="position"
-              placeholder="Software Engineer"
-              maxLength={120}
-            />
-            <Label htmlFor="agent-role">Role</Label>
-            <Input
-              id="agent-role"
-              name="role"
-              placeholder="Build and maintain our products"
-            />
-            <Label htmlFor="agent-manager">Reports to</Label>
-            <select id="agent-manager" name="reports_to" defaultValue="">
-              <option value="">Organization owner</option>
-              {data?.agents.filter(a=>!a.project_id).map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-            <Button type="submit">Create agent</Button>
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
-          </form>
-        </DialogContent>
-      </Dialog>
-      {groupEditor && <GroupDialog key={`${groupEditor.id}:${groupEditor.archived_at}:${groupEditor.deleted_at}`}
+      {newAgent && <NewAgentDialog agents={organizationAgents} groups={data?.groups ?? []} projectId={newAgentProject}
+        controllerAccess={controllerAccess} workstations={data?.workstations ?? []} onClose={() => setNewAgent(false)}
+        onCreated={async agent => {
+          await refresh(); setNewAgent(false);
+          if (agent.project_id) { setProjectTeamOpen(true); go({ groupId: agent.project_id, view: "Structure", agentId: agent.id, section: "Profile", runId: null }); }
+          else setSelectedAgent(agent.id);
+        }} />}
+      {groupEditor && <GroupDialog controllerAccess={controllerAccess} key={`${groupEditor.id}:${groupEditor.archived_at}:${groupEditor.deleted_at}`}
         group={data?.groups.find((g) => g.id === groupEditor.id) ?? groupEditor}
         agents={organizationAgents}
         workstations={data?.workstations ?? []}
@@ -1569,6 +1558,7 @@ function OrganizationRelationships({
 }
 
 function AgentInspector({
+  controllerAccess,
   workstations,
   connection,
   agent,
@@ -1582,6 +1572,7 @@ function AgentInspector({
   perform,
 }: {
   connection?: Connection;
+  controllerAccess: boolean;
   workstations: Workstation[];
   agent: Agent;
   agents: Agent[];
@@ -1609,6 +1600,8 @@ function AgentInspector({
   const effectiveAgent = projectWorkdir ? {...agent,workdir:projectWorkdir} : agent;
   const [path, setPath] = useState(agent.workdir?.path ?? "");
   const [sshHost, setSshHost] = useState(agent.workdir?.ssh_host ?? "");
+  const [runtimeId, setRuntimeId] = useState(projectWorkdir?.runtime_id ?? agent.runtime_id ?? agent.workdir?.runtime_id ?? "");
+  const [runtimes, setRuntimes] = useState<RegisteredRuntime[]>([]);
   const remote = Boolean(sshHost);
   const [probe, setProbe] = useState("");
   const [filePath, setFilePath] = useState("");
@@ -1637,12 +1630,13 @@ function AgentInspector({
   const modelsRequest = useRef(0);
   const loadModels = useCallback(() => {
     const request = ++modelsRequest.current;
-    return api<CodexSettings>(`/harness/settings?harness=${edited.harness}&agent_id=${encodeURIComponent(agent.id)}${catalogHost ? `&ssh_host=${encodeURIComponent(catalogHost)}` : ""}`).then(settings => {
+    if (!runtimeId && !controllerAccess) { setModels(null); setModelError("Choose a runtime to load its model catalog."); return Promise.resolve(); }
+    return api<CodexSettings>(`/harness/settings?harness=${edited.harness}&agent_id=${encodeURIComponent(agent.id)}${runtimeId ? `&runtime_id=${encodeURIComponent(runtimeId)}` : catalogHost ? `&ssh_host=${encodeURIComponent(catalogHost)}` : ""}`).then(settings => {
       if (request === modelsRequest.current) { setModels(settings); setModelError(""); }
     }, (error: unknown) => {
       if (request === modelsRequest.current) setModelError(error instanceof Error ? error.message : String(error));
     });
-  }, [catalogHost, edited.harness, agent.id]);
+  }, [catalogHost, runtimeId, edited.harness, agent.id, controllerAccess]);
   useEffect(() => {
     if (section !== "Profile") return;
     let request = modelsRequest.current;
@@ -1794,14 +1788,18 @@ function AgentInspector({
                 <OrganizationRelationships context={organization} />
               )}
             </details>
-            <Label htmlFor="profile-harness">Harness</Label>
-            <select id="profile-harness" value={edited.harness} onChange={event => {
+            <RuntimeSelect value={runtimeId} onLoaded={setRuntimes} disabled={Boolean(projectWorkdir)} allowController={controllerAccess}
+              onChange={id => {
+                setRuntimeId(id); setSshHost(""); setPath(""); setProbe(""); setModels(null); setModelError(""); setSaved(false);
+                const available = availableHarnesses(runtimes.find(runtime => runtime.id === id));
+                setEdited({...edited, runtime_id: id || undefined, workdir: null, model: "", reasoning: "", harness: available.includes(edited.harness) ? edited.harness : available[0] ?? edited.harness});
+              }} />
+            {projectWorkdir && <p className="hint">This project's runtime is configured in project settings.</p>}
+            {runtimeId !== (agent.runtime_id ?? agent.workdir?.runtime_id ?? "") && !projectWorkdir && <p className="hint">Save this runtime, then attach its folder in Workdir before running the agent.</p>}
+            <HarnessSelect id="profile-harness" value={edited.harness} runtimeId={runtimeId} runtimes={runtimes} allowController={controllerAccess} onChange={harness => {
               setModels(null); setModelError(""); setProbe("");
-              setEdited({...edited, harness: event.target.value as Agent["harness"], model:"", reasoning:"", permission: event.target.value === "opencode" ? "danger-full-access" : edited.permission});
-            }}>
-              <option value="codex">Codex CLI</option>
-              <option value="opencode">OpenCode</option>
-            </select>
+              setEdited({...edited, harness, model:"", reasoning:"", permission: harness === "opencode" ? "danger-full-access" : edited.permission});
+            }} />
             <p className="hint">Each harness keeps its own resumable sessions. Switching back resumes that harness’s conversation.</p>
             <Label htmlFor="profile-model">Model</Label>
             <select
@@ -1920,7 +1918,8 @@ function AgentInspector({
             {probe && <p className="probe-result">{probe}</p>}
           </div>
         )}
-        {section === "Workdir" && (
+        {section === "Workdir" && projectWorkdir && <div className="form-stack"><h3>Project workdir</h3><p>Runtime and workdir are inherited from this project.</p><code>{projectWorkdir.path}</code><a href={`/projects/${agent.project_id}/structure`}>Open project structure to manage its workdir</a></div>}
+        {section === "Workdir" && !projectWorkdir && (
           <div className="form-stack">
             <div className="workdir-icon">
               <FolderOpen size={26} />
@@ -1932,9 +1931,10 @@ function AgentInspector({
               this folder’s .env file when they start. Edit the file in your
               codebase; changes apply to the next execution.
             </p>
-            <WorkstationSelect id="workstation-host" value={sshHost} workstations={workstations} onChange={host => { setSshHost(host); setPath(""); setProbe(""); }}/>
+            <p className="hint">Runtime: {runtimes.find(runtime => runtime.id === runtimeId)?.name ?? (runtimeId ? "Selected in Profile" : "Controller / SSH")}. <button type="button" onClick={() => onSectionChange("Profile")}>Change in Profile</button></p>
+            {controllerAccess && !runtimeId && <WorkstationSelect id="workstation-host" value={sshHost} workstations={workstations} onChange={host => { setSshHost(host); setPath(""); setProbe(""); }}/> }
             <Label htmlFor="workdir-path">Absolute directory path</Label>
-            <Button variant="outline" disabled={remote && !sshHost.trim()} onClick={() => setFolderPicker(true)}>
+            <Button variant="outline" disabled={!runtimeId && (!controllerAccess || (remote && !sshHost.trim()))} onClick={() => setFolderPicker(true)}>
               <FolderOpen size={16} />
               Browse folders
             </Button>
@@ -1951,8 +1951,8 @@ function AgentInspector({
                   const result = await post<{
                     workspace: Workspace;
                     git_status: string;
-                  }>("/workspaces/probe", { path, ssh_host: remote ? sshHost.trim() : null });
-                  setEdited({ ...edited, workdir: result.workspace });
+                  }>("/workspaces/probe", { path, runtime_id: runtimeId || null, ssh_host: remote ? sshHost.trim() : null });
+                  setEdited({ ...edited, runtime_id: result.workspace.runtime_id, workdir: result.workspace });
                   setProbe(result.git_status);
                 })
               }
@@ -1989,10 +1989,10 @@ function AgentInspector({
                 void perform(async () => {
                   const result = await post<{ workspace: Workspace }>(
                     "/workspaces/probe",
-                    { path, ssh_host: remote ? sshHost.trim() : null },
+                    { path, runtime_id: runtimeId || null, ssh_host: remote ? sshHost.trim() : null },
                   );
-                  const changedHost = (result.workspace.ssh_host ?? null) !== (agent.workdir?.ssh_host ?? null);
-                  await save({ ...edited, workdir: result.workspace, ...(changedHost ? {model:"", reasoning:""} : {}) });
+                  const changedSshHost = (result.workspace.ssh_host ?? null) !== (agent.workdir?.ssh_host ?? null);
+                  await save({ ...edited, runtime_id: result.workspace.runtime_id, workdir: result.workspace, ...(changedSshHost ? {model:"", reasoning:""} : {}) });
                 })
               }
             >
@@ -2237,6 +2237,7 @@ function AgentInspector({
       </div>
       {folderPicker && (
         <FolderPicker
+          runtimeId={runtimeId || undefined}
           initialPath={path}
           sshHost={remote ? sshHost.trim() : undefined}
           onSelect={(selected) => {

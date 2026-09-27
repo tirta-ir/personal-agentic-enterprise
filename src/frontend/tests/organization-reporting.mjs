@@ -65,7 +65,7 @@ export async function verifyOrganizationReporting({ page, call, state, base, dir
   await page.locator(`.org-card[data-agent-id="${manager.id}"]`).click();
   await expect(page.getByLabel("Reports to", { exact: true })).toHaveValue("");
   await page.getByText("Organization knowledge", { exact: true }).click();
-  await expect(page.getByLabel("Organization relationships")).toContainText("Owner");
+  await expect(page.getByLabel("Organization relationships")).toContainText("Owner (Owner)");
   await connector(manager); await connector(worker, manager.id);
   await page.screenshot({ path: path.join(directory, "organization-reporting-fixed.png"), animations: "disabled" });
   await page.setViewportSize({ width: 800, height: 900 }); await connector(manager); await connector(worker, manager.id);

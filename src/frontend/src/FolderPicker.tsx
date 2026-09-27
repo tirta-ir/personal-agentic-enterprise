@@ -16,11 +16,13 @@ import type { DirectoryView } from "./bindings/DirectoryView";
 export function FolderPicker({
   initialPath,
   sshHost,
+  runtimeId,
   onSelect,
   onClose,
 }: {
   initialPath: string;
   sshHost?: string;
+  runtimeId?: string;
   onSelect: (path: string) => void;
   onClose: () => void;
 }) {
@@ -38,8 +40,8 @@ export function FolderPicker({
   useEffect(() => {
     const controller = new AbortController();
     void api<DirectoryView>(
-      `/workspaces/directories?path=${encodeURIComponent(request.path)}${sshHost ? `&ssh_host=${encodeURIComponent(sshHost)}` : ""}`,
-      { signal: controller.signal },
+      runtimeId ? `/runtimes/${encodeURIComponent(runtimeId)}/directories` : `/workspaces/directories?path=${encodeURIComponent(request.path)}${sshHost ? `&ssh_host=${encodeURIComponent(sshHost)}` : ""}`,
+      { signal: controller.signal, ...(runtimeId ? {method: "POST", body: JSON.stringify({path: request.path})} : {}) },
     ).then(
       (next) => {
         if (!controller.signal.aborted) {
@@ -55,7 +57,7 @@ export function FolderPicker({
       },
     );
     return () => controller.abort();
-  }, [request, sshHost]);
+  }, [request, sshHost, runtimeId]);
   return (
     <Dialog
       open
@@ -67,7 +69,7 @@ export function FolderPicker({
         <DialogHeader>
           <DialogTitle>Choose a workdir</DialogTitle>
           <DialogDescription>
-            Browse folders on {sshHost || "this machine"}, then select the codebase your agent
+            Browse folders on {runtimeId ? "the selected runtime" : sshHost || "this machine"}, then select the codebase your agent
             will use.
           </DialogDescription>
         </DialogHeader>
@@ -88,10 +90,10 @@ export function FolderPicker({
           <nav aria-label="Folder locations">
             <button onClick={() => void browse("")}>
               <Folder size={16} />
-              Project folder
+              {runtimeId ? "Runtime root" : "Project folder"}
             </button>
             {view?.roots
-              .filter((r) => r.name !== "Project folder")
+              .filter((r) => r.name !== "Project folder" && r.name !== "Runtime root")
               .map((root) => (
                 <button key={root.path} onClick={() => void browse(root.path)}>
                   <HardDrive size={16} />
@@ -117,7 +119,7 @@ export function FolderPicker({
               <p className="error" role="alert">
                 {error}
                 <button onClick={() => void browse("")}>
-                  Open project folder
+                  Open {runtimeId ? "runtime root" : "project folder"}
                 </button>
               </p>
             )}

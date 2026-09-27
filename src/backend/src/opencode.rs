@@ -403,6 +403,13 @@ pub fn settings_for(
     harness: Harness,
     workspace: Option<&Workspace>,
 ) -> Result<CodexSettings> {
+    if let Some(id) = workspace.and_then(|w| w.runtime_id.as_deref()) {
+        return crate::fleet::settings(app, id, harness);
+    }
+    ensure!(
+        app.workspace_id == "default" && app.identity.as_ref().is_none_or(|i| i.user == "owner"),
+        "Choose a registered runtime for its model catalog"
+    );
     match harness {
         Harness::Opencode => settings(app, workspace),
         Harness::Codex => match workspace.and_then(|w| w.ssh_host.as_deref()) {

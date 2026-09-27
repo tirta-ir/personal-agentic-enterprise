@@ -146,6 +146,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
   height: 18px;
   flex-shrink: 0;
   color: var(--muted-foreground);
@@ -155,9 +156,25 @@
   align-items: center;
   gap: 4px;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  font-size: 10px;
+  letter-spacing: .2px;
+  font-size: 9px;
   font-weight: 650;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.org-card-runtime {
+  min-width: 0;
+  flex: 1;
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--secondary);
+  color: var(--primary);
+  font-size: 9px;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .org-card-edit {
   display: inline-flex;
@@ -168,6 +185,7 @@
   font-size: 11px;
   color: var(--primary);
   cursor: pointer;
+  flex-shrink: 0;
 }
 .org-card-edit:hover {
   background: var(--secondary);

@@ -1,24 +1,38 @@
 # Agentic Enterprise
 
+Chat replies show the original sender and a two-line message preview inside the bubble, including after reload or when the original is outside the loaded history. Replying to an agent addresses that agent without another mention; explicit mentions take precedence. Replies to humans and ordinary room posts do not invoke agents. Agent answers quote the user message that started their run. Group membership and side-chat boundaries still apply.
+
+Click a quoted preview (or press Enter/Space while focused) to jump to and highlight the original message. Older history loads automatically. Live updates preserve loaded history and your reading position; scrolling to the bottom or sending a message resumes following new messages.
+
+The decentralized workspace implementation adds authenticated tenants, registered outbound workers, explicit human/agent groups, and Matrix rooms. Start with [deployment and one-line installation](DEPLOYMENT.md) and the [verification guide](VERIFICATION.md). The local/SSH instructions below describe the retained bootstrap-owner mode; new workspaces use registered runtimes.
+
+## Workspace navigation
+
+Organization and project structure cards show a rounded runtime-name badge beside the agent type. The badge uses the effective workdir (including project overrides); hover for the full name when truncated. Unattached agents show “Not assigned”, and existing local/SSH workdirs retain their corresponding labels.
+
+Open **User settings** from the account button at the bottom of the sidebar, then choose **Profile**, **Runtime**, or **Workspace**. **Action board** and **Organization** remain in the main sidebar. Workspace owners can invite Matrix users and assign **Member** or **Owner** roles. Owners manage the workspace, its agents, runtimes, and actions; members use shared rooms. You cannot change your own ownership. Profile shows your authenticated identity and current access. Existing `/settings/workstations` bookmarks still open Runtime.
+
+On the action table, click a data-column heading to toggle ascending/descending order. Drag its right edge to resize; keyboard users can focus the separator and use Left/Right (Home resets). Unscheduled dates remain last. The pencil edits, the green play button invokes, and the red trash button confirms deletion. Stop active work before deleting. Deleted actions leave the board and cannot run again; stored run history and evidence remain available. Table sizing and sorting last until you leave the board.
+
 ## Projects, actions and collaboration
 
-- Use **+ → Create project** beside Groups. Choose a name and a local or saved remote workdir. Creation leaves the team empty and opens **Structure** immediately. Add organization agents or create dedicated project agents and set reporting lines there; the create/edit project dialog no longer edits the team. Projects use a folder icon and `/projects/<name--id>/...` URLs. Chat, Knowledge, Runs and independent side conversations use the existing group machinery.
+- Use **+ → Create project** beside Groups. Choose a name and registered runtime, then use **Browse** to select a workdir on that machine. Bootstrap owners can also use controller/SSH workdirs. Creation leaves the team empty and opens **Structure** immediately. Add organization agents or create dedicated project agents and set reporting lines there; the create/edit project dialog no longer edits the team. Projects use a folder icon and `/projects/<name--id>/...` URLs. Chat, Knowledge, Runs and independent side conversations use the existing group machinery.
 - **Structure → Add agent → Project** creates a dedicated agent. It also appears in Organization. Project reporting lines are separate from organization lines: a dedicated agent reports globally to its project manager only when that manager is an organization agent; otherwise it reports to the owner. Normal agents keep their global reporting lines.
 - Every project run, including delegates and side chats, snapshots the project's workdir and host instead of the agent's default. Dedicated agents also inherit it in their profile terminal and Skills tab. A normal agent retains its own default outside the project. Models/credentials resolve on the actual execution host; leave model/effort blank to use that host's defaults.
 - Open **Action board** in the sidebar for the organization-wide **Table / Calendar** views, or **Actions** inside a project/group for a filtered view. Select a PIC and choose **Save to backlog**, a future **planned start**, or **Run now**. Blank planned start never invokes work. Dates display in the browser's local timezone and persist as UTC. Calendar leaves unscheduled work in a separate backlog.
 - Actions dispatch through the existing persisted queue. A transaction claims each scheduled occurrence once. Results link to Runs; failures/cancellation remain visible. Owner or the assigning agent can invoke/edit an action; agent visibility follows current group membership, with delegation-only agents limited to their own assigned items. Archiving/deleting a group or restoring a backup removes pending action schedules; review before scheduling again.
 
-Every native agent run receives a temporary `enterprise` MCP connection to the same Rust service, using an ephemeral per-run credential (never the owner key). Available tools: `workspace_list`, `action_list`, `action_save`, `action_invoke`, `cross_chat_invoke`, `handoff_status`, `chat_usage`, `chat_reset`, and `chat_btw`. The HTTP endpoint rejects inactive credentials and rechecks membership on each operation. Remote workstations must be able to reach the platform's bound private address. The existing SSH watchdog still owns remote execution.
+Every native agent run receives a temporary `enterprise` MCP connection to the same Rust service, using an ephemeral per-run credential (never the owner key). Available tools: `workspace_list`, `action_list`, `action_save`, `action_invoke`, `cross_chat_invoke`, `handoff_status`, `chat_usage`, and `chat_reset`. The HTTP endpoint rejects inactive credentials and rechecks membership on each operation. Remote workstations must be able to reach the platform's bound private address. The existing SSH watchdog still owns remote execution.
 
 Cross-chat work requires the sender to participate in **both** chats and the recipient to participate in the destination. Only the explicit task crosses; the recipient resumes its own destination session. A stable request ID prevents duplicate invocation. The source receives a linked result and one summary when both runs finish. Membership is checked again before delivery. Requests are one hop, at most three per turn; receipt summaries cannot launch more work, preventing automatic reply loops.
 
-`chat_btw` starts a separately queued side session using the main context at opening. `chat_reset` defers until existing work finishes: main resets that group and its side chats, side resets only itself. Other groups stay untouched. New sends receive a clear pending-reset message until it completes. `chat_usage` retains `/usage` behavior: the platform account's Codex quota plus recorded OpenCode usage for the current conversation. Remote account quotas and OpenCode reset times are not exposed.
+Only an authenticated human can start a separately queued side session with `/btw`, using the main context at opening. Agents cannot create side chats: the `chat_btw` tool is removed, stale calls are rejected, and cross-chat requests cannot bypass the actor check. Existing side-chat history remains accessible. `chat_reset` defers until existing work finishes: main resets that group and its side chats, side resets only itself. Other groups stay untouched. New sends receive a clear pending-reset message until it completes. `chat_usage` retains `/usage` behavior: the platform account's Codex quota plus recorded OpenCode usage for the current conversation. Remote account quotas and OpenCode reset times are not exposed.
 
 Platform tool authorization controls platform data and invocation. It is not an operating-system security boundary for agents granted YOLO filesystem/network access.
 
 The action board persists in `action_items`. Records from the retired Work feature stay untouched in `work_items`; they are not assigned or scheduled by this upgrade. The migration is safe to rerun and imports only fully shaped actions from the initial collaboration preview build.
 
-A personal agent workspace: persistent group chat, configurable Codex and OpenCode agents, and direct attachment to existing codebases. A background Rust executable serves the API and built React/TypeScript/shadcn browser UI. The service binds to `http://127.0.0.1:8765` by default. No Docker, Node application server, or database service is required.
+A native personal agent workspace: persistent group chat, configurable Codex and OpenCode agents, and direct attachment to existing codebases. A background Rust executable serves the API and built React/TypeScript/shadcn browser UI. The service binds to `http://127.0.0.1:8765` by default. No Docker, Node application server, or database service is required.
 
 Codex uses `exec` / `exec resume`; OpenCode v2 uses native `run --standalone --format json --auto` and `--session`. Command Code remains deferred.
 
@@ -35,6 +49,20 @@ Codex and OpenCode can delegate to each other using the existing organization an
 A failed, timed-out or interrupted run gets one read-only review by an eligible manager or teammate. Private delegate failures already return to their parent manager; reviews do not spawn reviews. No task is automatically retried or moved to another harness. If no eligible reviewer exists, the owner receives a notice. `/usage` distinguishes recorded native token/cost measurements from unavailable quota information.
 
 OpenCode standalone/private server processes belong to the existing local process tree or SSH watchdog; they are not a separately deployed daemon. Native session data stays under `org/.state/runtime` locally, or the organization namespace under `~/.local/share/agentic-enterprise` remotely. These protected directories must be included in stopped-service backups if native-session recovery is required.
+
+## Custom Codex catalogs
+
+The platform reads a user-configured `model_catalog_json` before `models_cache.json`, and passes that override explicitly to isolated Codex sessions on local machines, registered workers and SSH workstations. Relative catalog paths are resolved against the Codex home. An invalid configured catalog reports an error instead of silently falling back. Credentials and unrelated user settings are not copied into the controller.
+
+Custom Codex catalogs can be selected with `model_catalog_json`. The worker reads the configured catalog and reports invalid files instead of silently falling back.
+
+## Runtime selection and metadata
+
+Create an agent through **Organization → Add agent**: choose its registered runtime, a harness reported by that machine, and an absolute workdir, then complete the profile. Runtime options display only their names. Offline workers and workers without a signed-in harness catalog cannot create runnable agents. The selected model is shown before creation; the workdir is validated on the worker before saving.
+
+For existing agents, **Profile → Registered runtime** appears immediately before **Harness**. Changing runtime clears the old workdir and model selection; save the profile, select the model for that machine, and attach its folder in **Workdir**. A runtime can be saved before a folder is attached, but execution still requires a validated workdir. Dedicated project agents inherit their project's runtime and folder.
+
+**User settings → Runtime → Edit** changes a runtime's name and description without replacing its registration. Root folder, OS and harness availability are reported by the worker; change those on the machine itself. Owner authorization and workspace isolation apply to metadata updates (`PUT /api/runtimes/{id}`). Revoked registrations cannot be edited.
 
 ## Answering agent questions
 
@@ -68,7 +96,7 @@ Stop terminates the owned remote process group. A stalled/lost controller stops 
 
 Configure your own Linux or macOS workstation under User settings. Select an existing SSH config alias or enter a hostname, verify its host key, and attach a workdir. No workstation credentials or addresses are included in the repository.
 
-For remote workstation checks, configure a disposable SSH alias and organization, then run `node tests/remote-workstations.mjs` and `node tests/remote-availability.mjs` from `src/frontend`, or `python backend/tests/remote_watchdog.py <ssh-alias>` from `src`. These checks require an available SSH host and signed-in native CLI.
+For remote workstation checks, configure a disposable SSH alias and organization, then run `node tests/remote-workstations.mjs` and `node tests/remote-availability.mjs` from `src/frontend`, or `python backend/tests/remote_watchdog.py <ssh-alias>` from `src`.
 
 ## Chat metadata, activity and mobile navigation
 
@@ -88,11 +116,11 @@ Windows paths, `file:` URLs and workdir-relative paths resolve through the authe
 
 **Add to knowledge** in the preview saves the exact Markdown bytes currently displayed as a file in the current group's Knowledge tab, then runs the existing semantic index. It changes to **Added to knowledge** only when indexing succeeds. Progress and errors stay visible; **Retry indexing** reuses the saved file after a failure. An existing text file with the same name and bytes in that group is reused on later clicks. Archived/deleted groups cannot add knowledge. The saved copy survives changes to the workdir file; linked images and other referenced files are not copied. This action uses loaded previews (up to 1 MiB). The existing upload API can still create copies if separate tabs add the same file simultaneously.
 
-## Gauss design system
+## Visual design
 
 Agentic Enterprise has a custom generated blue ribbon logo, used in the navigation, sign-in screen and browser icon. Your chat messages appear on the right in blue bubbles with white text; agents reply on the left in mostly white bubbles with a pale blue gradient. Main and side chats share the same styling. Names, positions, timestamps, Reply, delivery status and execution evidence remain available outside the bubbles; attachments stay with their message.
 
-The interface uses a blue semantic palette, Poppins for UI text and JetBrains Mono for code. `frontend/src/gauss-tokens.css` holds the palette and Tailwind mappings; navigation, chat, forms, knowledge, runs, schedules and the organization chart share these tokens. Fonts ship locally with the production bundle. Existing agent avatar colors remain personalized; newly created agents use the product's blue accent. Font licenses are recorded in `UPSTREAM.md`.
+The interface uses a blue semantic palette, Poppins for UI text and JetBrains Mono for code. `frontend/src/gauss-tokens.css` holds the palette and Tailwind mappings. Fonts ship locally; licenses are recorded in `UPSTREAM.md`.
 
 ## Group chat permissions and position badges
 
@@ -174,7 +202,7 @@ pwsh -NoProfile -File scripts/Start.ps1 -InterfaceAlias <interface-alias>
 
 Start resolves the interface's current preferred IPv4 address and persists its alias and port in `org/.state/deployment.json`. Subsequent Start, Open and sign-in startup use that setting. The service listens only on that address; the old loopback URL stops working. The interface must be connected and have one preferred IPv4 address. A missing/ambiguous interface fails visibly without changing the saved configuration. Changing an already-running binding requires Stop first. Use `-InterfaceAlias ''` after stopping to return to loopback; `-Org` selects another organization and `-Port` selects its port. The native executable also accepts `--bind <IPv4>`, with loopback as its default and wildcard addresses rejected.
 
-For a private-interface deployment, an administrator can add an inbound Windows Firewall rule scoped to the native executable, TCP port 8765 and the selected interface. From `src`, replace `<interface-alias>` with the intended network interface:
+For a private-interface deployment, an administrator can add an inbound Windows Firewall rule scoped to the native executable, TCP port 8765 and the selected interface. From `src`, replace `<interface-alias>` with the intended interface:
 
 ```powershell
 New-NetFirewallRule -Name 'AgenticEnterprise-8765' -DisplayName 'Agentic Enterprise' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8765 -InterfaceAlias '<interface-alias>' -Program (Join-Path $PWD 'target/debug/agentic-enterprise.exe') -Profile Any
@@ -315,3 +343,39 @@ Sessions are keyed by group, side-chat ID (empty for main), agent and attached w
 `node tests/native-smoke.mjs chat-composer` uses the same fresh disposable-instance setup. It checks automatic height growth/shrink/capping, multi-agent mentions through real Codex replies, the shared side composer, keyboard-accessible participant dialog, scoped membership and narrow layouts.
 
 Verify this flow against a fresh disposable organization using `node tests/native-smoke.mjs workspace-navigation` with `AE_TEST_ORG` and `AE_TEST_URL`. It exercises real section CRUD/sorting/dragging, archive restoration, hidden deleted links, restart persistence, 320/390/768 px layouts and touch menus. One real read-only Codex run verifies recorded model badges and spinner-to-green completion; an invalid test-workdir dotenv verifies the failure state without a second provider call.
+
+
+Registered-runtime folder browsing uses the existing outbound worker connection;
+no inbound worker port or controller filesystem access is required. Project creation,
+project settings and agent Workdir settings use the same picker. Browsing starts at
+the registered root, cannot navigate above it, and rejects internal worker-state
+folders. Select a folder to populate the form; saving still validates it through
+the worker. Update both the controller and workers to use this operation.
+
+Run `node src/scripts/verify-runtime-browser.mjs credentials.json output-dir
+workspace-id windows-runtime-id mac-runtime-id` for the live browser regression.
+It creates/removes one temporary project, checks both workers, reload persistence,
+mobile layout and directory authorization, without starting an agent run.
+
+
+Agent mention suggestions insert the assigned name (`@B. Riemann`) instead of an
+internal ID. Chat messages render recognized name/ID mentions as blue profile links;
+older ID-based messages retain their stored text but display the current agent name.
+Code spans/blocks, email addresses, partial ID matches and existing Markdown links
+are not rewritten. Native name-based recipient resolution and room membership
+validation remain on the server.
+
+`node src/scripts/verify-mentions.mjs credentials.json output-dir workspace-id
+runtime-id workdir` checks mouse/keyboard selection, real named-agent invocation,
+blue profile links, reload persistence and legacy rendering. It uses one temporary
+agent/group and a real read-only Codex run; successful checks remove both entities.
+
+
+Worker result uploads are capped by serialized bytes as well as frame count.
+Individual provider frames may be up to 8 MiB; report batches stay within 8 MiB,
+below the controller's 10 MiB request limit. The existing per-run output budget
+remains 8 MiB. Oversized new frames fail explicitly before entering the outbox.
+A rejected upload retains its unacknowledged data and reports the job ID, while
+other uploads and heartbeats continue. Completion is sent only after every frame
+in the finished outbox has been included; earlier interrupted runs are not replayed
+or changed to successful merely because their remaining output was uploaded.

@@ -1,0 +1,48 @@
+import {createRequire} from 'node:module';
+import {readFile,mkdir,writeFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import assert from 'node:assert/strict';
+const require=createRequire(new URL('../frontend/package.json',import.meta.url));
+const {chromium,expect}=require('@playwright/test');
+const [credentials,output,workspace,windowsRuntime,macRuntime]=process.argv.slice(2);
+const creds=JSON.parse(await readFile(credentials,'utf8')),dir=resolve(output);await mkdir(dir,{recursive:true});
+const browser=await chromium.launch({headless:true,channel:'msedge'}),context=await browser.newContext({viewport:{width:1440,height:1000}}),page=await context.newPage();
+page.setDefaultTimeout(40000);const errors=[];page.on('pageerror',e=>errors.push(e.message));let created;
+async function api(path,data,method='GET',tenant=workspace,status=200){const r=await context.request.fetch(creds.url+'/api'+path,{method,data,headers:{'x-ae-workspace':tenant}});assert.equal(r.status(),status,await r.text());return r.json();}
+try {
+ await page.goto(creds.url);await page.getByLabel('Username',{exact:true}).fill(creds.username);await page.getByLabel('Password',{exact:true}).fill(creds.password);await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await page.getByRole('combobox',{name:'Workspace',exact:true}).selectOption(workspace);
+ const before=await api('/state'),runtimes=await api('/runtimes');
+ await page.getByRole('button',{name:'Add group or section',exact:true}).click();await page.getByRole('menuitem',{name:'Create project',exact:true}).click();
+ const project=page.getByRole('dialog',{name:'Create a project',exact:true});
+ await expect(project.getByRole('button',{name:'Browse',exact:true})).toBeDisabled();
+ const name='Runtime browser verification '+Date.now();await project.getByLabel('Name',{exact:true}).fill(name);
+ await project.getByLabel('Registered runtime',{exact:true}).selectOption(windowsRuntime);
+ await expect(project.getByRole('button',{name:'Browse',exact:true})).toBeEnabled();await project.getByRole('button',{name:'Browse',exact:true}).click();
+ const picker=page.getByRole('dialog',{name:'Choose a workdir',exact:true});
+ await expect(picker.getByRole('button',{name:'Select folder',exact:true})).toBeEnabled();
+ await expect(picker.getByRole('button',{name:'Parent folder',exact:true})).toBeDisabled();
+ await picker.getByLabel('Filter folders').fill('Owner-agentic-platform');await picker.getByRole('button',{name:'Owner-agentic-platform',exact:true}).click();
+ await expect(picker.getByRole('button',{name:'Parent folder',exact:true})).toBeEnabled();
+ await picker.getByLabel('Filter folders').fill('workdir');await picker.getByRole('button',{name:'workdir',exact:true}).click();
+ await picker.getByLabel('Filter folders').fill('.migration-smoke-20260922');await picker.getByRole('button',{name:'.migration-smoke-20260922',exact:true}).click();
+ await expect(picker.getByRole('button',{name:'Select folder',exact:true})).toBeEnabled();await page.screenshot({path:resolve(dir,'windows-picker.png')});
+ await picker.getByRole('button',{name:'Select folder',exact:true}).click();
+ await expect(project.getByLabel('Project workdir')).toHaveValue(/migration-smoke-20260922$/);
+ await project.getByRole('button',{name:'Create project',exact:true}).click();await expect(project).toHaveCount(0);
+ created=(await api('/state')).groups.find(g=>g.name===name);assert(created);assert.equal(created.project.workdir.runtime_id,windowsRuntime);assert.equal(created.project.members.length,0);
+ await writeFile(resolve(dir,'project-id.json'),JSON.stringify({id:created.id}));
+ await page.reload();await page.getByRole('button',{name:'Manage project',exact:true}).click();
+ const manage=page.getByRole('dialog',{name:'Manage project',exact:true});await expect(manage.getByLabel('Project workdir')).toHaveValue(/migration-smoke-20260922$/);
+ await manage.getByLabel('Registered runtime',{exact:true}).selectOption(macRuntime);await expect(manage.getByLabel('Project workdir')).toHaveValue('');
+ await manage.getByRole('button',{name:'Browse',exact:true}).click();await expect(picker.getByRole('button',{name:'Select folder',exact:true})).toBeEnabled();
+ await expect(picker.getByRole('button',{name:'Parent folder',exact:true})).toBeDisabled();await expect(picker.locator('.folder-toolbar')).toContainText('/Users/test-user/Engineering');
+ await page.setViewportSize({width:390,height:844});await expect.poll(()=>picker.evaluate(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;})).toBe(true);await page.screenshot({path:resolve(dir,'mac-picker-mobile.png')});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ await picker.getByRole('button',{name:'Cancel',exact:true}).click();await manage.getByRole('button',{name:'Close',exact:true}).click();
+ for(const path of ['C:\\Windows','F:\\Engineering\\Owner-agentic-platform\\org\\.state','F:\\Engineering\\does-not-exist-verification'])await api('/runtimes/'+windowsRuntime+'/directories',{path},'POST',workspace,400);
+ const other=(await api('/tenants')).find(t=>t.id!==workspace&&t.name==='Personal');assert(other);await api('/runtimes/'+windowsRuntime+'/directories',{path:''},'POST',other.id,400);
+ const anonymous=await browser.newContext();assert.equal((await anonymous.request.post(creds.url+'/api/runtimes/'+windowsRuntime+'/directories',{data:{path:''}})).status(),401);await anonymous.close();
+ await api('/groups/'+created.id,undefined,'DELETE');created=null;
+ const after=await api('/state');assert.deepEqual(after.agents,before.agents);const originals=new Set(before.groups.map(g=>g.id));assert.deepEqual(after.groups.filter(g=>originals.has(g.id)),before.groups);assert(after.groups.filter(g=>!originals.has(g.id)).every(g=>g.deleted_at));assert.deepEqual(errors,[]);
+ const proof={projectCreatedWithBrowsedFolder:true,persistedAfterReload:true,windowsRuntime:runtimes.find(r=>r.id===windowsRuntime).name,macRuntime:runtimes.find(r=>r.id===macRuntime).name,runtimeSwitchClearsPath:true,rootParentDisabled:true,escapeAndStateDenied:true,missingFolderDenied:true,crossWorkspaceDenied:true,anonymousDenied:true,mobileFits:true,originalConfigurationPreserved:true,browserErrors:errors,mocks:false};await writeFile(resolve(dir,'proof.json'),JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));
+} catch(e){await page.screenshot({path:resolve(dir,'failure.png')});throw e;} finally {if(created)await api('/groups/'+created.id,undefined,'DELETE');await context.request.post(creds.url+'/api/logout',{data:{}});await browser.close();}

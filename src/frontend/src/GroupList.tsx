@@ -17,8 +17,8 @@ function MenuPopup({ children }: { children: ReactNode }) {
   </Menu.Positioner></Menu.Portal>;
 }
 
-export function GroupList({ groups, preferences, selected, running, onSelect, onSave, onCreate, onCreateProject }: {
-  groups: Group[]; preferences: GroupPreferences; selected: string | null; running: string[];
+export function GroupList({ readOnly = false, groups, preferences, selected, running, onSelect, onSave, onCreate, onCreateProject }: {
+  readOnly?: boolean; groups: Group[]; preferences: GroupPreferences; selected: string | null; running: string[];
   onSelect: (id: string) => void; onSave: (preferences: GroupPreferences) => Promise<void>; onCreate: () => void; onCreateProject: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -68,6 +68,7 @@ export function GroupList({ groups, preferences, selected, running, onSelect, on
   function edit(section?: GroupSection) {
     setError(""); setEditing(section ?? { id: "", name: "", groups: [] }); setName(section?.name ?? "");
   }
+  if (readOnly) return <><div className="section-label">YOUR ROOMS</div><nav aria-label="Groups" className="group-list">{ordered.map(g=><button key={g.id} className={`nav-item ${selected===g.id?"selected":""}`} aria-current={selected===g.id?"page":undefined} onClick={()=>onSelect(g.id)}>{g.project?<FolderKanban size={16}/>:<Hash size={16}/>}<span>{g.name}</span></button>)}{!ordered.length&&<p className="settings-description">No rooms shared with you yet. Ask your workspace owner for an invitation.</p>}</nav></>;
   return <>
     <div className="section-label"><span>GROUPS & PROJECTS</span><div className="group-header-actions">
       <Menu.Root><Menu.Trigger aria-label="Group options" title="Sort groups and manage sections" disabled={busy}><MoreHorizontal size={19} /></Menu.Trigger>

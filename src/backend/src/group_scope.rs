@@ -45,6 +45,28 @@ pub fn access(conn: &Connection, group: &Group) -> Result<GroupAccess> {
         chat_lead_id: None,
     };
     let mut candidates = vec![];
+    if group.project.is_none() {
+        if let Some(invited) = &group.member_ids {
+            let mut included = std::collections::BTreeSet::new();
+            for id in invited {
+                let mut current = Some(id.as_str());
+                let mut seen = std::collections::HashSet::new();
+                while let Some(id) = current {
+                    ensure!(
+                        seen.insert(id),
+                        "Reporting relationships cannot form a cycle"
+                    );
+                    let agent = agents.iter().find(|a| a.id == id && a.project_id.is_none());
+                    let Some(agent) = agent else { break };
+                    included.insert(agent.id.clone());
+                    current = agent.reports_to.as_deref();
+                }
+            }
+            result.participant_ids = included.into_iter().collect();
+            result.delegate_ids = result.participant_ids.clone();
+            return Ok(result);
+        }
+    }
     for agent in &agents {
         let level = if let Some(project) = &group.project {
             if !project.members.iter().any(|m| m.agent_id == agent.id) {
@@ -95,6 +117,23 @@ pub fn access(conn: &Connection, group: &Group) -> Result<GroupAccess> {
 
 pub fn validate(conn: &Connection, group: &mut Group) -> Result<()> {
     crate::projects::validate(conn, group)?;
+    if let Some(ids) = &mut group.member_ids {
+        ensure!(
+            group.project.is_none(),
+            "Project membership is managed in its structure"
+        );
+        ids.sort();
+        ids.dedup();
+        for id in ids {
+            let agent: Agent = store::get(conn, "agents", id)?;
+            ensure!(
+                agent.deleted_at.is_none() && agent.project_id.is_none(),
+                "Invite an active organization agent"
+            );
+        }
+        group.scope_levels = None;
+        group.chat_lead_id = None;
+    }
     if let Some(levels) = &mut group.scope_levels {
         ensure!(
             !levels.is_empty() && levels.len() <= 1000 && levels.iter().all(|level| *level > 0),
@@ -117,9 +156,159 @@ pub fn validate(conn: &Connection, group: &mut Group) -> Result<()> {
     Ok(())
 }
 
+/// Match complete mention tokens: @Ann must not invoke @Anna.
+pub fn mentions(conn: &Connection, group: &Group, body: &str) -> Result<Vec<String>> {
+    let allowed = access(conn, group)?;
+    let text = body.to_lowercase();
+    let matches = |name: &str| {
+        let needle = format!("@{}", name.to_lowercase());
+        text.match_indices(&needle).any(|(start, _)| {
+            let before = text[..start].chars().next_back();
+            let after = text[start + needle.len()..].chars().next();
+            before.is_none_or(|c| c.is_whitespace() || "([{".contains(c))
+                && after.is_none_or(|c| c.is_whitespace() || ",.!?:;)]}".contains(c))
+        })
+    };
+    Ok(store::list::<Agent>(conn, "agents")?
+        .into_iter()
+        .filter(|a| {
+            a.enabled
+                && allowed.participant_ids.contains(&a.id)
+                && (matches("all") || matches(&a.id) || matches(&a.name))
+        })
+        .map(|a| a.id)
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replies_address_the_quoted_agent_once_and_preserve_scope() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let db = store::Store::open(directory.path().join("org"))?;
+        let mut ceo: Agent = db.get("agents", "ceo")?;
+        ceo.workdir = Some(crate::security::validate_workspace(
+            directory.path().to_str().unwrap(),
+        )?);
+        db.put("agents", "ceo", &ceo)?;
+        let mut other = ceo.clone();
+        other.id = "other".into();
+        other.name = "Other".into();
+        db.put("agents", "other", &other)?;
+        let send = |id: &str, reply: Option<&str>, body: &str| {
+            db.write(|conn| {
+                crate::api::submit_message(
+                    conn,
+                    crate::api::SendInput {
+                        id: id.into(),
+                        group_id: "general".into(),
+                        side_chat_id: None,
+                        body: body.into(),
+                        recipients: vec![],
+                        reply_to: reply.map(str::to_owned),
+                        artifacts: vec![],
+                    },
+                    None,
+                )
+            })
+        };
+        let human = send("human", None, "Hello")?;
+        assert!(
+            send("human-reply", Some(&human.id), "Reply to human")?
+                .recipients
+                .is_empty()
+        );
+        let mut answer = human.clone();
+        answer.id = "answer".into();
+        answer.sender = "ceo".into();
+        db.put("messages", &answer.id, &answer)?;
+        let reply = send("follow-up", Some(&answer.id), "Continue")?;
+        assert_eq!(reply.recipients, ["ceo"]);
+        assert_eq!(
+            send("follow-up", Some(&answer.id), "Continue")?.id,
+            reply.id
+        );
+        assert_eq!(db.list::<Run>("runs")?.len(), 1);
+        assert_eq!(
+            send("override", Some(&answer.id), "@other check this")?.recipients,
+            ["other"]
+        );
+        answer.group_id = "elsewhere".into();
+        db.put("messages", &answer.id, &answer)?;
+        assert!(send("cross-group", Some(&answer.id), "Continue").is_err());
+        answer.group_id = "general".into();
+        answer.side_chat_id = Some("private-side".into());
+        db.put("messages", &answer.id, &answer)?;
+        assert!(send("cross-side", Some(&answer.id), "Continue").is_err());
+        answer.side_chat_id = None;
+        db.put("messages", &answer.id, &answer)?;
+        let mut group: Group = db.get("groups", "general")?;
+        group.member_ids = Some(vec!["other".into()]);
+        db.put("groups", "general", &group)?;
+        assert!(send("excluded", Some(&answer.id), "Continue").is_err());
+        assert_eq!(db.list::<Run>("runs")?.len(), 2);
+        assert!(db.get::<Message>("messages", "excluded").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_team_excludes_siblings_and_room_posts_do_not_dispatch() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let db = store::Store::open(directory.path().join("org"))?;
+        let ceo: Agent = db.get("agents", "ceo")?;
+        for (id, parent) in [
+            ("a", "ceo"),
+            ("left", "a"),
+            ("right", "a"),
+            ("left-child", "left"),
+            ("right-child", "right"),
+        ] {
+            let mut agent = ceo.clone();
+            agent.id = id.into();
+            agent.name = id.into();
+            agent.reports_to = Some(parent.into());
+            db.put("agents", id, &agent)?;
+        }
+        let mut group: Group = db.get("groups", "general")?;
+        group.member_ids = Some(vec!["left-child".into()]);
+        db.read(|conn| validate(conn, &mut group))?;
+        db.put("groups", "general", &group)?;
+        let allowed = db.read(|conn| access(conn, &group))?;
+        assert_eq!(
+            allowed.participant_ids,
+            vec!["a", "ceo", "left", "left-child"]
+        );
+        assert!(allowed.ensure_allowed("right", RunKind::Delegate).is_err());
+        assert_eq!(
+            db.read(|conn| mentions(conn, &group, "@left-child, please check"))?,
+            vec!["left-child"]
+        );
+        assert!(
+            db.read(|conn| mentions(conn, &group, "email@left and @leftish"))?
+                .is_empty()
+        );
+        let message = db.write(|conn| {
+            crate::api::submit_message(
+                conn,
+                crate::api::SendInput {
+                    id: crate::model::id(),
+                    group_id: group.id.clone(),
+                    side_chat_id: None,
+                    body: "Hello team".into(),
+                    recipients: vec![],
+                    reply_to: None,
+                    artifacts: vec![],
+                },
+                None,
+            )
+        })?;
+        assert!(!message.auto_routed);
+        assert!(message.recipients.is_empty());
+        assert!(db.list::<Run>("runs")?.is_empty());
+        Ok(())
+    }
 
     #[test]
     fn hierarchy_separates_chat_participants_from_delegated_workers() -> Result<()> {

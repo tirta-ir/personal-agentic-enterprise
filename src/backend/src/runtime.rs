@@ -29,6 +29,9 @@ pub fn start_queue(app: App) {
 }
 
 fn dispatch(app: &App) -> Result<()> {
+    if !app.enabled.load(Ordering::Relaxed) {
+        return Ok(());
+    }
     crate::agent_tools::tick(app)?;
     crate::schedules::tick(app)?;
     crate::actions::tick(app)?;
@@ -193,6 +196,17 @@ pub fn login_status(app: &App, agent_id: &str) -> Result<Value> {
     agent.workdir = app
         .store
         .read(|conn| crate::projects::workspace(conn, &agent))?;
+    if let Some(workspace) = agent.workdir.as_ref().filter(|w| w.runtime_id.is_some()) {
+        let settings = crate::opencode::settings_for(app, agent.harness, Some(workspace))?;
+        crate::fleet::validate(app, workspace)?;
+        return Ok(
+            json!({"ready":true,"message":format!("Registered runtime connected; workdir verified; {} models advertised. Native credentials are validated by the CLI when a run starts.",settings.models.len()),"harness":agent.harness}),
+        );
+    }
+    anyhow::ensure!(
+        app.workspace_id == "default" && app.identity.as_ref().is_none_or(|i| i.user == "owner"),
+        "Attach a registered runtime before checking its connection"
+    );
     if agent.harness == Harness::Opencode {
         let settings = crate::opencode::settings(app, agent.workdir.as_ref())?;
         return Ok(
@@ -330,6 +344,8 @@ fn execute_turn(
         .as_ref()
         .context("Attach a workdir before running this agent")?;
     let remote_host = workspace.ssh_host.clone();
+    let runtime_id = workspace.runtime_id.clone();
+    let offloaded = remote_host.is_some() || runtime_id.is_some();
     let opencode = run.profile.harness == Harness::Opencode;
     if remote_host.is_some() {
         let connection = crate::remote::probe_for(workspace, run.profile.harness);
@@ -339,7 +355,7 @@ fn execute_turn(
             connection.host,
             connection.message
         );
-    } else {
+    } else if runtime_id.is_none() {
         security::revalidate(workspace)?;
     }
     run.native_session_id = app.store.read(|c| {
@@ -364,12 +380,12 @@ fn execute_turn(
         home.set_file_name("opencode");
     }
     std::fs::create_dir_all(&home)?;
-    let auth = if remote_host.is_none() && !opencode {
+    let auth = if !offloaded && !opencode {
         Some(seed_auth(&home)?)
     } else {
         None
     };
-    let env = if remote_host.is_none() {
+    let env = if !offloaded {
         security::workdir_env(workspace)?
     } else {
         Default::default()
@@ -431,7 +447,7 @@ fn execute_turn(
         ));
     }
     prompt.push_str(&coordination::context(app, run)?);
-    prompt.push_str("\nPlatform tools are available through the enterprise MCP server. Use workspace_list and action_list to discover accessible work. Only explicit tasks cross chat boundaries; never copy unrelated histories or secrets. Cross-chat work returns asynchronously with a receipt and summary. Use chat_usage, chat_reset or chat_btw when requested; do not type slash commands as a substitute for calling tools. If project is present in your context, its members define your project manager/team and its workdir overrides defaults for every assignment in this chat. Global reporting remains in the organization snapshot. An action with no planned_start is backlog, never scheduled. Do not invoke it until asked.\n");
+    prompt.push_str("\nPlatform tools are available through the enterprise MCP server. Use workspace_list and action_list to discover accessible work. Only explicit tasks cross chat boundaries; never copy unrelated histories or secrets. Cross-chat work returns asynchronously with a receipt and summary. Only humans can start a side chat with /btw; never create one through tools or slash-command text. Use chat_usage or chat_reset when requested; do not type slash commands as a substitute for calling tools. If project is present in your context, its members define your project manager/team and its workdir overrides defaults for every assignment in this chat. Global reporting remains in the organization snapshot. An action with no planned_start is backlog, never scheduled. Do not invoke it until asked.\n");
     prompt.push_str("\nCurrent task:\n");
     if run.kind == RunKind::Summary {
         prompt.push_str("This is a summary-only turn: report the existing worker results and answers. Do not repeat the original task or ask the owner again. The assigned worker owns clarification.\n");
@@ -448,22 +464,28 @@ fn execute_turn(
                 .collect::<Vec<_>>(),
         )?);
     }
-    let mut command = match &remote_host {
-        Some(host) => crate::remote::command(host)?,
-        None => Command::new(if opencode {
-            crate::opencode::executable()?
-        } else {
-            app.codex.clone()
-        }),
+    let mut command = if let Some(id) = &runtime_id {
+        crate::fleet::command(app, id)?
+    } else {
+        match &remote_host {
+            Some(host) => crate::remote::command(host)?,
+            None => Command::new(if opencode {
+                crate::opencode::executable()?
+            } else {
+                app.codex.clone()
+            }),
+        }
     };
     let settings = crate::opencode::settings_for(app, run.profile.harness, Some(workspace))?;
     let (selected_model, selected_reasoning) =
         settings.resolve(&run.profile.model, &run.profile.reasoning)?;
-    let opencode_auth = if opencode && remote_host.is_none() {
+    let opencode_auth = if opencode && !offloaded {
         let lease = crate::opencode::seed_credentials(workspace, &home)?;
         secrets.extend(lease.secrets());
         Some(lease)
-    } else { None };
+    } else {
+        None
+    };
     run.model_display_name = settings
         .models
         .iter()
@@ -486,7 +508,14 @@ fn execute_turn(
     ];
     args.extend([
         "-c".into(),
-        format!("mcp_servers.enterprise.url=\"http://{}/mcp\"", app.address),
+        format!(
+            "mcp_servers.enterprise.url=\"{}/mcp\"",
+            if runtime_id.is_some() {
+                app.public_url.to_string()
+            } else {
+                format!("http://{}", app.address)
+            }
+        ),
         "-c".into(),
         "mcp_servers.enterprise.bearer_token_env_var=\"AE_TOOL_TOKEN\"".into(),
         "-c".into(),
@@ -494,13 +523,16 @@ fn execute_turn(
         "-c".into(),
         "mcp_servers.enterprise.tool_timeout_sec=86500".into(),
     ]);
-    if remote_host.is_none() {
+    if !offloaded {
         args.push("--ignore-user-config".into());
+        if !opencode && let Some(catalog) = crate::codex_settings::catalog_argument()? {
+            args.extend(["-c".into(), catalog]);
+        }
     }
     // Windows otherwise downgrades workspace-write to read-only when no sandbox
     // implementation is selected in the isolated (ignored-config) runtime.
     #[cfg(windows)]
-    if remote_host.is_none() {
+    if !offloaded {
         args.extend([
             "-c".into(),
             "windows.sandbox=\"elevated\"".into(),
@@ -532,7 +564,7 @@ fn execute_turn(
             prompt.push_str(include_str!("coordination-schema.json"));
         }
     }
-    if run.kind == RunKind::Coordinator && remote_host.is_none() && !opencode {
+    if run.kind == RunKind::Coordinator && !offloaded && !opencode {
         let schema = home.join("coordination-schema.json");
         store::atomic_write(&schema, include_bytes!("coordination-schema.json"))?;
         args.extend([
@@ -545,7 +577,7 @@ fn execute_turn(
         let artifact: Artifact = app.store.get("artifacts", artifact_id)?;
         let path = security::artifact_path(&app.store.org, &artifact.id)?;
         if artifact.media_type.starts_with("image/") {
-            if remote_host.is_some() {
+            if offloaded {
                 use base64::Engine;
                 remote_images.push(json!({"id":artifact.id,"data":base64::engine::general_purpose::STANDARD.encode(std::fs::read(path)?)}));
             } else {
@@ -567,7 +599,7 @@ fn execute_turn(
             );
         }
     }
-    let remote_request = remote_host.as_ref().map(|_| json!({
+    let mut remote_request = offloaded.then(|| json!({
         "op":"execute", "path":workspace.path, "workspace":workspace,
         "namespace":crate::remote::namespace(app),"session_id":run.session_id,"run_id":run.id,
         "instructions":instruction,"arguments":args,"prompt":prompt,"images":remote_images,
@@ -576,6 +608,12 @@ fn execute_turn(
         "harness":run.profile.harness,"opencode_config":opencode.then(||crate::opencode::config(&home,&run.profile.permission,&selected_model,&app.address.to_string())),
         "schema":(run.kind==RunKind::Coordinator && !opencode).then(||include_str!("coordination-schema.json"))
     }));
+    if runtime_id.is_some() {
+        if let Some(request) = remote_request.as_mut() {
+            request["opencode_config"]["mcp"]["enterprise"]["url"] =
+                format!("{}/mcp", app.public_url).into();
+        }
+    }
     if let Some(native) = &run.native_session_id {
         args.extend([
             if opencode { "--session" } else { "resume" }.into(),
@@ -585,7 +623,7 @@ fn execute_turn(
     if !opencode {
         args.push("-".into());
     }
-    if remote_host.is_none() {
+    if !offloaded {
         command.args(&args).current_dir(&workspace.path).env_clear();
         system_environment(&mut command);
         command
@@ -640,7 +678,13 @@ fn execute_turn(
     let mut remote_stdin = None;
     if let Some(mut stdin) = child.stdin.take() {
         if let Some(request) = remote_request {
-            crate::remote::write_request(&mut stdin, request)?;
+            if runtime_id.is_some() {
+                serde_json::to_writer(&mut stdin, &request)?;
+                stdin.write_all(b"\n")?;
+                stdin.flush()?;
+            } else {
+                crate::remote::write_request(&mut stdin, request)?;
+            }
             remote_stdin = Some(stdin);
         } else {
             stdin.write_all(prompt.as_bytes())?;
@@ -711,7 +755,7 @@ fn execute_turn(
         }
         was_waiting = waiting;
         if stopped.is_some()
-            && (remote_host.is_none()
+            && (!offloaded
                 || remote_stop_at.is_some_and(|time| time.elapsed() > Duration::from_secs(10)))
         {
             owner.request_stop()?;
@@ -734,6 +778,11 @@ fn execute_turn(
             for (is_error, line) in rx.try_iter() {
                 protocol.capture(app, &run.id, &secrets, is_error, &line)?;
             }
+            // A normal remote exit can close stdin before its completion receipt is
+            // drained. That receipt resolves a heartbeat EOF, never an explicit stop.
+            if stopped == Some("interrupted") && protocol.remote_finished.is_some() {
+                stopped = None;
+            }
             // OpenCode's CLI terminates with an exit status, not Codex's turn.completed frame.
             if opencode
                 && status.success()
@@ -746,12 +795,17 @@ fn execute_turn(
                 stopped = Some("failed");
                 run.error = Some("Run output exceeded 8 MiB".into());
             }
-            if remote_host.is_some() && protocol.remote_finished.is_none() {
+            if offloaded && protocol.remote_finished.is_none() {
                 run.status = "interrupted".into();
-                run.error = Some("Remote connection ended without completion confirmation. Its heartbeat watchdog stops owned work within 15 seconds; inspect the remote workdir before retrying.".into());
+                run.error = Some("Remote connection ended without completion confirmation. Inspect the remote workdir and process state before explicitly retrying.".into());
             } else if let Some(state) = stopped {
                 run.status = state.into();
             } else if status.success()
+                && (!offloaded
+                    || protocol
+                        .remote_finished
+                        .as_ref()
+                        .is_some_and(|v| v["exit_code"] == 0))
                 && protocol.completed
                 && protocol.error.is_none()
                 && (!protocol.text.is_empty()
@@ -782,7 +836,9 @@ fn execute_turn(
         std::thread::sleep(Duration::from_millis(50));
     }
     run.native_session_id = protocol.session.or(run.native_session_id.clone());
-    if let Some(auth) = opencode_auth { auth.finish()?; }
+    if let Some(auth) = opencode_auth {
+        auth.finish()?;
+    }
     run.output = security::redacted(&protocol.text, &secrets);
     run.error = run
         .error
@@ -790,6 +846,7 @@ fn execute_turn(
         .map(|text| security::redacted(text, &secrets));
     run.usage = protocol.usage;
     if opencode
+        && runtime_id.is_none()
         && run.native_session_id.is_some()
         && !["cancelled", "timed_out", "interrupted"].contains(&run.status.as_str())
     {
@@ -888,13 +945,13 @@ pub(crate) fn read_pipe(
         loop {
             buffer.clear();
             let n = std::io::Read::by_ref(&mut reader)
-                .take(1024 * 1024)
+                .take(8 * 1024 * 1024)
                 .read_until(b'\n', &mut buffer)?;
             if n == 0 {
                 break;
             }
-            if n == 1024 * 1024 && buffer.last() != Some(&b'\n') {
-                bail!("Provider frame exceeds 1 MiB");
+            if n == 8 * 1024 * 1024 && buffer.last() != Some(&b'\n') {
+                bail!("Provider frame exceeds 8 MiB");
             }
             if tx
                 .send((error, String::from_utf8_lossy(&buffer).trim_end().into()))

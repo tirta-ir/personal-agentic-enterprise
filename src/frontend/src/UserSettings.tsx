@@ -1,5 +1,6 @@
+import { RuntimeSettings } from "./RuntimeSettings";
 import { useState } from "react";
-import { Monitor, Plus, Server, Trash2 } from "lucide-react";
+import { Monitor, Plus, Server, Trash2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,7 +9,8 @@ import type { Workstation } from "./bindings/Workstation";
 import type { Connection } from "./bindings/Connection";
 
 const empty: Workstation = { id: "", name: "", hostname: "", host_ip: "", port: 22, username: "", auth: "key", ssh_alias: "", ssh_key_path: "", secret_saved: false };
-export function UserSettings({ workstations, onRefresh }: { workstations: Workstation[]; onRefresh: () => Promise<void> }) {
+export function UserSettings({ role, user, controllerAccess, workstations, onRefresh }: { role: string; user: string; controllerAccess: boolean; workstations: Workstation[]; onRefresh: () => Promise<void> }) {
+  const [section, setSection] = useState("runtimes");
   const [draft, setDraft] = useState<Workstation | null>(null);
   const [secret, setSecret] = useState("");
   const [clearSecret, setClearSecret] = useState(false);
@@ -26,8 +28,12 @@ export function UserSettings({ workstations, onRefresh }: { workstations: Workst
     try { await work(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   }
-  return <section className="user-settings">
-    <header><div><h1>User settings</h1><p>Save workstations once, then choose them in an agent or project.</p></div><Button onClick={() => edit(empty)}><Plus size={16}/>Add workstation</Button></header>
+  if (role !== "owner") return <section className="user-settings"><div className="settings-page"><header className="settings-page-heading"><span className="settings-kicker">YOUR WORKSPACE</span><h1>Settings</h1><p>Your account and workspace access.</p></header><section className="settings-card"><div className="settings-section-title"><ShieldCheck size={20}/><h2>Workspace access</h2><span className="settings-badge">Member</span></div><strong className="settings-account">{user}</strong><p className="settings-description">You can join conversations in the rooms shared with you. Your workspace owner manages people, agents, and runtime connections.</p></section><section className="settings-card"><div className="settings-section-title"><Server size={20}/><h2>Agent runtimes</h2></div><p className="settings-description">Agents run on machines connected by your workspace owner. Contact them to connect a machine or change an agent’s workdir.</p></section></div></section>;
+  return <section className="user-settings"><div className="settings-page">
+    <header className="settings-page-heading"><span className="settings-kicker">WORKSPACE SETTINGS</span><h1>Connected machines</h1><p>Choose where your agents run. Files and credentials stay on the connected machine.</p></header>
+    {controllerAccess&&<nav className="settings-tabs" aria-label="Connection type"><Button variant={section==="runtimes"?"secondary":"ghost"} aria-pressed={section==="runtimes"} onClick={()=>setSection("runtimes")}>Agent runtimes</Button><Button variant={section==="ssh"?"secondary":"ghost"} aria-pressed={section==="ssh"} onClick={()=>setSection("ssh")}>SSH workstations</Button></nav>}
+    {section==="runtimes"||!controllerAccess?<RuntimeSettings/>:<div className="legacy-workstations">
+    <header><div><h2>SSH workstations</h2><p>Save workstations once, then choose them in an agent or project.</p></div><Button onClick={() => edit(empty)}><Plus size={16}/>Add workstation</Button></header>
     <div className="workstation-settings-layout"><nav aria-label="Saved workstations">
       <div className="workstation-local"><Monitor size={18}/><span><strong>Local</strong><small>This machine</small></span></div>
       {workstations.map(host => <button key={host.id} className={draft?.id === host.id ? "selected" : ""} onClick={() => edit(host)}><Server size={18}/><span><strong>{host.name}</strong><small>{host.username}@{host.host_ip || host.hostname}:{host.port}</small></span></button>)}
@@ -63,5 +69,5 @@ export function UserSettings({ workstations, onRefresh }: { workstations: Workst
     </form> : <div className="empty-state"><Server size={30}/><h2>Your workstations</h2><p>Select a saved workstation or add a new connection.</p></div>}
     {error && <p className="banner error" role="alert">{error}</p>}{message && <p className="banner" role="status">{message}</p>}
     </div></div>
-  </section>;
+  </div>}</div></section>;
 }

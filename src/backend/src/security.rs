@@ -34,17 +34,32 @@ pub async fn guard(State(app): State<App>, req: Request, next: Next) -> Response
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let valid_host = host == app.address.to_string()
+        || std::env::var("AE_INTERNAL_URL")
+            .ok()
+            .and_then(|s| url::Url::parse(&s).ok())
+            .is_some_and(|u| u[url::Position::BeforeHost..url::Position::AfterPort] == *host)
+        || url::Url::parse(&app.public_url)
+            .ok()
+            .is_some_and(|u| u[url::Position::BeforeHost..url::Position::AfterPort] == *host)
         || (app.address.ip().is_loopback() && host == format!("localhost:{}", app.address.port()));
     if !valid_host {
         return (StatusCode::FORBIDDEN, "Invalid host").into_response();
     }
     if let Some(origin) = req.headers().get(header::ORIGIN) {
-        if origin.to_str().ok() != Some(format!("http://{host}").as_str()) {
+        if origin.to_str().ok() != Some(format!("http://{host}").as_str())
+            && origin.to_str().ok() != Some(app.public_url.trim_end_matches('/'))
+        {
             return (StatusCode::FORBIDDEN, "Cross-origin request rejected").into_response();
         }
     }
     let path = req.uri().path();
-    if path.starts_with("/api/") && !["/api/login", "/api/health"].contains(&path) {
+    if path.starts_with("/api/")
+        && !["/api/login", "/api/health"].contains(&path)
+        && req
+            .extensions()
+            .get::<crate::platform::Identity>()
+            .is_none()
+    {
         let bearer = req
             .headers()
             .get(header::AUTHORIZATION)
@@ -113,6 +128,7 @@ pub fn validate_workspace(path: &str) -> Result<Workspace> {
         .success()
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string());
     Ok(Workspace {
+        runtime_id: None,
         ssh_host: None,
         path: path.to_string_lossy().into_owned(),
         canonical_path: canonical.to_string_lossy().into_owned(),
@@ -120,6 +136,9 @@ pub fn validate_workspace(path: &str) -> Result<Workspace> {
     })
 }
 pub fn revalidate(workspace: &Workspace) -> Result<()> {
+    if workspace.runtime_id.is_some() {
+        bail!("Use the registered runtime for this workdir");
+    }
     if workspace.ssh_host.is_some() {
         bail!("This operation requires the remote workstation connection");
     }

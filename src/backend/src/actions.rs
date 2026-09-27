@@ -23,6 +23,9 @@ pub struct ActionInput {
 }
 
 pub fn can_see(conn: &Connection, item: &ActionItem, actor: &str) -> Result<bool> {
+    if item.status == "deleted" {
+        return Ok(false);
+    }
     if actor == "owner" {
         return Ok(true);
     }
@@ -218,6 +221,7 @@ pub async fn invoke(State(app): State<App>, Path(id): Path<String>) -> ApiResult
 }
 pub async fn cancel(State(app): State<App>, Path(id): Path<String>) -> ApiResult<ActionItem> {
     let item: ActionItem = app.store.get("action_items", &id)?;
+    app.store.read(|conn| authorize(conn, &item, "owner"))?;
     if let Some(run) = &item.run_id {
         let root: Run = app.store.get("runs", run)?;
         for child in app
@@ -233,6 +237,7 @@ pub async fn cancel(State(app): State<App>, Path(id): Path<String>) -> ApiResult
     }
     let item = app.store.write(|conn| {
         let mut item: ActionItem = store::get(conn, "action_items", &id)?;
+        authorize(conn, &item, "owner")?;
         if !["queued", "running"].contains(&item.status.as_str()) {
             item.status = "cancelled".into();
             item.revision += 1;
@@ -244,6 +249,35 @@ pub async fn cancel(State(app): State<App>, Path(id): Path<String>) -> ApiResult
     })?;
     app.wake.notify_one();
     Ok(Json(item))
+}
+
+pub fn delete_item(conn: &Connection, id: &str) -> Result<ActionItem> {
+    let mut item: ActionItem = store::get(conn, "action_items", id)?;
+    authorize(conn, &item, "owner")?;
+    ensure!(
+        !["queued", "running"].contains(&item.status.as_str()),
+        "Stop or wait for this action before deleting"
+    );
+    if let Some(run_id) = &item.run_id {
+        let root: Run = store::get(conn, "runs", run_id)?;
+        ensure!(
+            !store::list::<Run>(conn, "runs")?
+                .iter()
+                .any(|r| r.message_id == root.message_id && coordination::active(r)),
+            "Stop or wait for this action's runs before deleting"
+        );
+    }
+    item.status = "deleted".into();
+    item.planned_start = None;
+    item.updated_at = now();
+    item.revision += 1;
+    store::put(conn, "action_items", id, &item)?;
+    store::event(conn, "action.deleted", &json!({"action_id":id}))?;
+    Ok(item)
+}
+
+pub async fn delete(State(app): State<App>, Path(id): Path<String>) -> ApiResult<ActionItem> {
+    Ok(Json(app.store.write(|conn| delete_item(conn, &id))?))
 }
 
 pub fn tick(app: &App) -> Result<()> {
@@ -400,6 +434,35 @@ mod tests {
             legacy
         );
         assert_eq!(reopened.list::<ActionItem>("action_items")?.len(), 1);
+        assert!(reopened.write(|conn| delete_item(conn, "action")).is_err());
+        let mut scheduled = input(0);
+        scheduled.id = "delete-me".into();
+        scheduled.planned_start = Some((Utc::now() + chrono::Duration::days(1)).to_rfc3339());
+        reopened.write(|conn| save_item(conn, scheduled, "owner"))?;
+        let deleted = reopened.write(|conn| delete_item(conn, "delete-me"))?;
+        assert_eq!(deleted.status, "deleted");
+        assert!(deleted.planned_start.is_none());
+        assert!(!reopened.read(|conn| can_see(conn, &deleted, "owner"))?);
+        assert!(
+            reopened
+                .write(|conn| dispatch_item(conn, "delete-me", "owner"))
+                .is_err()
+        );
+        let mut stale = input(deleted.revision);
+        stale.id = "delete-me".into();
+        assert!(
+            reopened
+                .write(|conn| save_item(conn, stale, "owner"))
+                .is_err()
+        );
+        drop(reopened);
+        let reopened = store::Store::open(directory.path().join("org"))?;
+        assert_eq!(
+            reopened
+                .get::<ActionItem>("action_items", "delete-me")?
+                .status,
+            "deleted"
+        );
         Ok(())
     }
 }

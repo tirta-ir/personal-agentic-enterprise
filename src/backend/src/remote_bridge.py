@@ -64,6 +64,15 @@ def codex_home():
     return Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
 
 
+def codex_catalog():
+    home = codex_home()
+    config = tomllib.loads((home / "config.toml").read_text(encoding="utf-8")) if (home / "config.toml").exists() else {}
+    override = config.get("model_catalog_json")
+    if override is not None and (not isinstance(override, str) or not override.strip()):
+        raise ValueError("model_catalog_json must be a nonempty path")
+    return config, home / (override if override is not None else "models_cache.json")
+
+
 def safe_path(path):
     if any(p.lower().startswith(".env") or p.lower() in (".git", ".state", "auth.json", "owner.key") for p in path.parts):
         raise ValueError("Sensitive/internal files are not exposed by this viewer")
@@ -186,6 +195,10 @@ def execute(request, ws, executable):
         config["instructions"]=[str(home/"AGENTS.md")]
         env["OPENCODE_CONFIG_CONTENT"]=json.dumps(config)
     args = ["-lc", request["command"]] if terminal else request["arguments"]
+    if not terminal and not opencode:
+        config, catalog = codex_catalog()
+        if "model_catalog_json" in config:
+            args += ["-c", "model_catalog_json=" + json.dumps(str(catalog))]
     if request.get("schema"):
         schema = home / "coordination-schema.json"
         schema.write_text(request["schema"], encoding="utf-8")
@@ -492,12 +505,11 @@ def main(request):
               "roots": [{"name": "Home", "path": str(Path.home())}], "folders": folders})
         return 0
     if op == "settings":
-        home = codex_home()
-        config = tomllib.loads((home / "config.toml").read_text()) if (home / "config.toml").exists() else {}
+        config, catalog = codex_catalog()
         profile = config.get("profiles", {}).get(config.get("profile"), {})
         keys = ("model", "model_reasoning_effort")
         emit({"config": {k: profile.get(k, config.get(k, "")) for k in keys},
-              "cache": json.loads((home / "models_cache.json").read_text())})
+              "cache": json.loads(catalog.read_text(encoding="utf-8"))})
         return 0
     ws = workspace(request)
     if op == "workspace":

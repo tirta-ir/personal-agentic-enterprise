@@ -1,0 +1,1 @@
+Based on Moby profiles commit 245180c51918481c0525424b3ee025d2b435d46c (https://github.com/moby/profiles/tree/245180c51918481c0525424b3ee025d2b435d46c), Apache-2.0. Adds unprivileged namespace/mount syscalls for Codex bubblewrap; retains Docker deny-by-default filtering. No host capabilities or privileged mode.
